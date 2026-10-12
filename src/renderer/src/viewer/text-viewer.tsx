@@ -3,6 +3,7 @@ import { openSearchPanel, search } from "@codemirror/search";
 import type { ViewUpdate } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Icon } from "@renderer/components/Icon";
+import { Markdown } from "@renderer/components/Markdown";
 import { formatBytes } from "@renderer/lib/format";
 import { useAppStore } from "@renderer/state/appStore";
 import { NO_BOOKMARKS, useBookmarkStore } from "@renderer/state/bookmarkStore";
@@ -27,6 +28,9 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<"changed" | "unlinked" | null>(null);
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
+
+  const isMarkdown = ref.ext === "md" || ref.ext === "markdown";
 
   const lastFileEvent = useAppStore((state) => state.lastFileEvent);
   const setDocDirty = useAppStore((state) => state.setDocDirty);
@@ -192,6 +196,17 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
     [docId, ref.path, setSelection]
   );
 
+  const onPreviewSelect = (): void => {
+    const text = window.getSelection()?.toString().trim() ?? "";
+    if (!text) {
+      emitSelection(null);
+      setSelection(null);
+      return;
+    }
+    emitSelection({ docId, docPath: ref.path, kind: "text", page: 0, rects: [], text });
+    setSelection(text);
+  };
+
   const addBookmarkHere = useCallback(() => {
     const view = editorRef.current?.view;
     if (!view) return;
@@ -250,14 +265,32 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
         {dirty ? <span className="text-accent">• unsaved</span> : null}
         <span className="flex-1" />
         {error ? <span className="text-anno-pink">{error}</span> : null}
-        <button
-          type="button"
-          onClick={addBookmarkHere}
-          className="rounded border border-border px-2 py-0.5 hover:bg-panel hover:text-text"
-          title="Bookmark the current position"
-        >
-          ★ Bookmark{bookmarks.length > 0 ? ` (${bookmarks.length})` : ""}
-        </button>
+        {isMarkdown ? (
+          <div className="flex items-center overflow-hidden rounded border border-border">
+            {(["edit", "preview"] as const).map((next) => (
+              <button
+                key={next}
+                type="button"
+                onClick={() => setMode(next)}
+                className={`px-2 py-0.5 capitalize ${
+                  mode === next ? "bg-panel text-text" : "text-text-weak hover:text-text"
+                }`}
+              >
+                {next}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {mode === "edit" ? (
+          <button
+            type="button"
+            onClick={addBookmarkHere}
+            className="rounded border border-border px-2 py-0.5 hover:bg-panel hover:text-text"
+            title="Bookmark the current position"
+          >
+            ★ Bookmark{bookmarks.length > 0 ? ` (${bookmarks.length})` : ""}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void save()}
@@ -295,6 +328,14 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
       <div className="min-h-0 flex-1 overflow-hidden">
         {status === "loading" || value === null ? (
           <div className="flex h-full items-center justify-center text-xs text-text-weak">Loading text…</div>
+        ) : isMarkdown && mode === "preview" ? (
+          <div
+            className="h-full overflow-auto px-4 py-3"
+            onMouseUp={onPreviewSelect}
+            onKeyUp={onPreviewSelect}
+          >
+            <Markdown content={value} />
+          </div>
         ) : (
           <CodeMirror
             ref={editorRef}

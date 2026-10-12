@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Annotation } from "@shared/types";
+import { Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { revealSelection } from "@renderer/viewer/selection";
@@ -177,16 +178,36 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
             placeholder="Note…"
             className="w-full resize-none rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none placeholder:text-text-weak"
           />
-        ) : (
-          <button
-            type="button"
+        ) : annotation.note ? (
+          <div
+            role="button"
+            tabIndex={0}
+            title="Edit note"
             onClick={() => {
               setNote(annotation.note ?? "");
               setEditing(true);
             }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                setNote(annotation.note ?? "");
+                setEditing(true);
+              }
+            }}
+            className="cursor-text rounded text-xs leading-relaxed text-text-weak hover:text-text"
+          >
+            <Markdown content={annotation.note} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setNote("");
+              setEditing(true);
+            }}
             className="w-full text-left text-xs leading-relaxed text-text-weak hover:text-text"
           >
-            {annotation.note ? annotation.note : <span className="italic">Add note…</span>}
+            <span className="italic">Add note…</span>
           </button>
         )}
       </div>

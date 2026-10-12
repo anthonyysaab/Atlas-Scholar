@@ -43,7 +43,7 @@ back.
 | Panels | `react-resizable-panels` | Sidebar / document / side panel |
 | PDF | `pdfjs-dist` | Canvas + text layer; annotation overlay on top |
 | Editor | CodeMirror 6 | Text/markdown/code, editable |
-| Chat markdown | `react-markdown` + Shiki | Code blocks and citations |
+| Rich text | `react-markdown` + `remark-gfm` + `remark-math`/`rehype-katex` (KaTeX) + `rehype-highlight` | Markdown, GFM tables, LaTeX math, and code blocks in chat, annotations, and the text viewer |
 | Extraction | `pdfjs-dist`, `mammoth`, `xlsx` (SheetJS) | Pure JS |
 | Embeddings | provider registry (Ollama / OpenAI-compatible / transformers.js) | Configurable |
 | Vector store | pure-JS index (see `docs/interfaces.md`) | No native modules |

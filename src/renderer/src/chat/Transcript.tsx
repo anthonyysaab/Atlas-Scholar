@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { Citation, Thread } from "@shared/types";
-import { requestCitationJump } from "@renderer/context/citationJump";
+import { Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
+import { requestCitationJump } from "@renderer/context/citationJump";
 import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
 
 type ThreadMessage = Thread["messages"][number];
@@ -51,14 +52,12 @@ function MessageRow({
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
-        className={`max-w-[92%] whitespace-pre-wrap rounded-md px-2.5 py-1.5 text-[13px] leading-relaxed ${
+        className={`max-w-[92%] rounded-md px-2.5 py-1.5 text-[13px] leading-relaxed ${
           isUser ? "bg-panel text-text" : "bg-bg-subtle text-text"
         }`}
       >
-        {message.content}
-        {streaming ? (
-          <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-text align-middle" />
-        ) : null}
+        <Markdown content={message.content} />
+        {streaming ? <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-text align-middle" /> : null}
       </div>
       {message.citations && message.citations.length > 0 ? (
         <CitationChips citations={message.citations} docId={docId} docPath={docPath} />

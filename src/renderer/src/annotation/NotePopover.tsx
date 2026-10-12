@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Annotation } from "@shared/types";
+import { Markdown } from "@renderer/components/Markdown";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { revealSelection } from "@renderer/viewer/selection";
 import { ColorPicker } from "./ColorPicker";
@@ -99,7 +100,7 @@ export function NotePopover({ annotation, position, onClose }: NotePopoverProps)
 
       {annotation.quotedText ? (
         <blockquote className="mb-2 max-h-28 overflow-auto border-l-2 border-border pl-2 leading-relaxed text-text-weak">
-          {annotation.quotedText}
+          <Markdown content={annotation.quotedText} />
         </blockquote>
       ) : null}
 
