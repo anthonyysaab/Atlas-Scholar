@@ -190,7 +190,7 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
         setSelection(null);
       } else {
         emitSelection({ docId, docPath: ref.path, kind: "text", page: 0, rects: [], text });
-        setSelection(text);
+        setSelection({ text });
       }
     },
     [docId, ref.path, setSelection]
@@ -204,7 +204,7 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
       return;
     }
     emitSelection({ docId, docPath: ref.path, kind: "text", page: 0, rects: [], text });
-    setSelection(text);
+    setSelection({ text });
   };
 
   const addBookmarkHere = useCallback(() => {

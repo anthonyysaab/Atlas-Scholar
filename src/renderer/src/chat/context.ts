@@ -1,20 +1,25 @@
-import type { Citation } from "@shared/types";
+import type { ChatScope, Citation, Grounding, SelectionQuote } from "@shared/types";
 
 export interface PromptContext {
   promptContext: string;
   citations: Citation[];
+  grounding: Grounding;
+  notice?: string;
 }
 
 export async function buildPromptContext(
   docPath: string,
   question: string,
-  selection?: string
-): Promise<PromptContext | null> {
+  scope: ChatScope,
+  selection?: SelectionQuote | null
+): Promise<PromptContext> {
   try {
     const result = await window.api.rag.query({
       docPath,
       question,
-      ...(selection ? { selection } : {})
+      scope,
+      ...(selection ? { selection: selection.text } : {}),
+      ...(selection?.page !== undefined ? { page: selection.page } : {})
     });
     const citations: Citation[] = result.retrieved.map((chunk) => ({
       chunkId: chunk.chunkId,
@@ -22,9 +27,19 @@ export async function buildPromptContext(
       ...(chunk.section !== undefined ? { section: chunk.section } : {}),
       snippet: chunk.text.slice(0, 240)
     }));
-    if (!result.promptContext && citations.length === 0) return null;
-    return { promptContext: result.promptContext, citations };
-  } catch {
-    return null;
+    return {
+      promptContext: result.promptContext,
+      citations,
+      grounding: result.grounding,
+      ...(result.notice ? { notice: result.notice } : {})
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      promptContext: "",
+      citations: [],
+      grounding: "none",
+      notice: `Could not read the document (${message}) — answering without it.`
+    };
   }
 }

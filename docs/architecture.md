@@ -85,12 +85,16 @@ userData, so they travel with the file.
 5. Text viewers request text via `api.file.readText(path)`.
 
 **Ask a question**
-1. Renderer calls `api.rag.query({ docId, question, selection? })`.
-2. Main embeds the question, retrieves top-k chunks (+MMR, +selection boost), builds a prompt
-   with citations.
-3. Main streams the model response via `api.llm.chatStream(...)`, forwarding chunk events to
+1. Renderer calls `api.rag.query({ docPath, question, selection?, page?, scope })`.
+2. Main embeds selection + question, retrieves top-k chunks (+MMR, +selection boost), and builds
+   the system prompt with numbered excerpts for the chosen scope. If the document is not indexed
+   or the embedder fails, it falls back to the extracted text of the selection page ±1 and returns
+   a `notice` that the renderer shows above the composer (indexing stays manual).
+3. The renderer sends [system prompt, …history]; a user turn with a highlighted passage is sent as
+   the quoted passage followed by the question, and `<think>` blocks are stripped from history.
+4. Main streams the model response via `api.llm.chatStream(...)`, forwarding chunk events to
    the renderer over IPC.
-4. Renderer renders tokens and citation chips; clicking one scrolls the viewer to that chunk.
+5. Renderer renders tokens and citation chips; clicking one scrolls the viewer to that chunk.
 
 **Annotate a PDF**
 1. User selects text/region in the PDF viewer.

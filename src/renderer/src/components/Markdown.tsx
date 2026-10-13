@@ -6,6 +6,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
+import { normalizeMath } from "./normalizeMath";
 
 const REMARK_PLUGINS: PluggableList = [remarkGfm, [remarkMath, { singleDollarTextMath: true }]];
 const REHYPE_PLUGINS: PluggableList = [rehypeKatex, rehypeHighlight];
@@ -39,7 +40,7 @@ export const Markdown = memo(function Markdown({
   return (
     <div className={`ra-markdown${className ? ` ${className}` : ""}`}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
-        {content}
+        {normalizeMath(content)}
       </ReactMarkdown>
     </div>
   );

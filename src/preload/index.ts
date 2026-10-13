@@ -25,7 +25,7 @@ import type {
   ProviderInfo,
   ProviderModuleDescriptor,
   RagApi,
-  Retrieved,
+  RagQueryResult,
   Settings,
   SettingsApi,
   Thread,
@@ -104,7 +104,7 @@ const ragApi: RagApi = {
   status: (docPath) => invoke<IndexStatus>(IPC.rag.status, docPath),
   remove: (docPath) => invoke<void>(IPC.rag.remove, docPath),
   query: (input) =>
-    invoke<{ retrieved: Retrieved[]; promptContext: string }>(IPC.rag.query, input)
+    invoke<RagQueryResult>(IPC.rag.query, input)
 };
 
 const llmApi: Api["llm"] = {

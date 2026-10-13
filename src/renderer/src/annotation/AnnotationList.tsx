@@ -116,7 +116,9 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
 
   const useAsContext = (): void => {
     const text = contextText(annotation);
-    if (text) useAppStore.getState().setSelection(text);
+    if (!text) return;
+    const page = annotation.anchor.page;
+    useAppStore.getState().setSelection(page > 0 ? { text, page } : { text });
   };
 
   return (

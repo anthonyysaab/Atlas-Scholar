@@ -159,13 +159,32 @@ interface RagApi {
   index(docPath: string, opts?: { force?: boolean }): Promise<IndexStatus>
   status(docPath: string): Promise<IndexStatus>
   remove(docPath: string): Promise<void>
-  query(input: {
-    docPath: string
-    question: string
-    selection?: string          // boosts chunks overlapping the selection
-    topK?: number               // default from settings
-  }): Promise<{ retrieved: Retrieved[]; promptContext: string }>
+  query(input: RagQueryInput): Promise<RagQueryResult>
 }
+
+type ChatScope = "document" | "extended"
+
+interface RagQueryInput {
+  docPath: string
+  question: string
+  selection?: string          // embedded with the question and boosts overlapping chunks
+  page?: number               // 1-based page of the selection; enables the unindexed fallback
+  scope?: ChatScope           // default "document"
+  topK?: number               // default from settings
+}
+
+// grounding: "index" = whole-document retrieval; "page" = no usable index (not built, or the
+// embedder failed), so the selection page ±1 (or a text window around the selection) is used;
+// "none" = nothing to ground on. `notice` explains any non-"index" grounding to the user.
+// `promptContext` is always a complete system prompt, even with no excerpts.
+interface RagQueryResult {
+  retrieved: Retrieved[]
+  promptContext: string
+  grounding: "index" | "page" | "none"
+  notice?: string
+}
+
+interface SelectionQuote { text: string; page?: number }
 ```
 
 Streaming progress for indexing is delivered via `events` (see §1.7).
@@ -245,6 +264,7 @@ interface Settings {
   activeEmbeddingProviderId: string
   activeEmbeddingModel: string
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number }
+  chat: { scope: ChatScope }  // "document": excerpts only; "extended": cited document section, then optional outside knowledge
   ui: {
     theme: "dark" | "light" | "system"
     sidebarOpen: boolean
@@ -516,6 +536,7 @@ interface Thread {
     id: string
     role: "user" | "assistant"
     content: string
+    quote?: SelectionQuote      // passage highlighted when the question was asked; sent to the model with it
     citations?: Citation[]
     createdAt: string
   }[]

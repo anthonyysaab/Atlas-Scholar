@@ -3,6 +3,7 @@ import type { Citation, Thread } from "@shared/types";
 import { Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { requestCitationJump } from "@renderer/context/citationJump";
+import { splitThink } from "@renderer/chat/think";
 import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
 
 type ThreadMessage = Thread["messages"][number];
@@ -19,7 +20,8 @@ function CitationChips({
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {citations.map((citation, index) => {
-        const label = `${citation.page !== undefined ? `p.${citation.page}` : citation.section ?? "chunk"} · ${citation.chunkId.slice(-6)}`;
+        const where = citation.page !== undefined ? `p.${citation.page}` : citation.section;
+        const label = where ? `[${index + 1}] ${where}` : `[${index + 1}]`;
         return (
           <button
             key={`${citation.chunkId}-${index}`}
@@ -49,6 +51,10 @@ function MessageRow({
   docPath: string;
 }) {
   const isUser = message.role === "user";
+  const { reasoning, answer, thinking } = isUser
+    ? { reasoning: null, answer: message.content, thinking: false }
+    : splitThink(message.content);
+  const quote = message.quote;
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
@@ -56,7 +62,31 @@ function MessageRow({
           isUser ? "bg-panel text-text" : "bg-bg-subtle text-text"
         }`}
       >
-        <Markdown content={message.content} />
+        {quote ? (
+          <button
+            type="button"
+            title={quote.page !== undefined ? `Go to page ${quote.page}` : undefined}
+            disabled={quote.page === undefined}
+            onClick={() =>
+              requestCitationJump({
+                docId,
+                docPath,
+                citation: { chunkId: `quote-${message.id}`, page: quote.page, snippet: quote.text }
+              })
+            }
+            className="mb-1 block w-full border-l-2 border-border pl-2 text-left text-[12px] text-text-weak hover:text-text disabled:hover:text-text-weak"
+          >
+            <span className="line-clamp-4 whitespace-pre-wrap">{quote.text}</span>
+            {quote.page !== undefined ? <span className="text-[10px]">p.{quote.page}</span> : null}
+          </button>
+        ) : null}
+        {reasoning !== null ? (
+          <details className="mb-1 text-[12px] text-text-weak" open={thinking}>
+            <summary className="cursor-pointer select-none">{thinking ? "Thinking…" : "Reasoning"}</summary>
+            <div className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-2">{reasoning}</div>
+          </details>
+        ) : null}
+        {answer ? <Markdown content={answer} /> : null}
         {streaming ? <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-text align-middle" /> : null}
       </div>
       {message.citations && message.citations.length > 0 ? (

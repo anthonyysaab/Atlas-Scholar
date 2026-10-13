@@ -245,7 +245,7 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
       return;
     }
     emitSelection({ docId, docPath: ref.path, kind: "pdf", page: pageNumber, rects, text });
-    setSelection(text);
+    setSelection({ text, page: pageNumber });
   }, [docId, ref.path, setSelection]);
 
   const zoom = useCallback((factor: number) => {

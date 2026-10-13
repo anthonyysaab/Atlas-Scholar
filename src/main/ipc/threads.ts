@@ -1,7 +1,14 @@
-import type { Thread } from "@shared/types";
+import type { SelectionQuote, Thread } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { exportThreadMarkdown, listThreads, loadThread, removeThread, saveThread } from "@main/llm/threads";
 import { handle } from "./registry";
+
+function asQuote(value: unknown): SelectionQuote | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const { text, page } = value as Partial<SelectionQuote>;
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  return { text, ...(typeof page === "number" && Number.isFinite(page) ? { page } : {}) };
+}
 
 function asThread(value: unknown): Thread {
   if (value === null || typeof value !== "object") throw new Error("Invalid Thread");
@@ -26,11 +33,13 @@ function asThread(value: unknown): Thread {
     ) {
       throw new Error("Invalid Thread message");
     }
+    const quote = asQuote(message.quote);
     return {
       id: message.id,
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
+      ...(quote ? { quote } : {}),
       ...(Array.isArray(message.citations) ? { citations: message.citations } : {})
     };
   });

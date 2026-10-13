@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FileRef, OpenDoc } from "@shared/types";
+import type { FileRef, OpenDoc, SelectionQuote } from "@shared/types";
 import { viewerKindFor } from "@shared/mime";
 
 export interface FileEvent {
@@ -15,7 +15,7 @@ interface AppState {
   paletteOpen: boolean;
   settingsOpen: boolean;
   modelPaletteOpen: boolean;
-  selection: string | null;
+  selection: SelectionQuote | null;
   openFile: (ref: FileRef) => void;
   closeDoc: (id: string) => void;
   setActiveDoc: (id: string) => void;
@@ -25,7 +25,7 @@ interface AppState {
   setPaletteOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setModelPaletteOpen: (open: boolean) => void;
-  setSelection: (text: string | null) => void;
+  setSelection: (selection: SelectionQuote | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -94,7 +94,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setModelPaletteOpen: (open) => set({ modelPaletteOpen: open }),
 
-  setSelection: (text) => set({ selection: text })
+  setSelection: (selection) => set({ selection })
 }));
 
 export function selectActiveDoc(state: AppState): OpenDoc | null {

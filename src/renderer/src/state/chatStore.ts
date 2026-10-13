@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import type { ChatMessage, Citation, Thread } from "@shared/types";
+import type { ChatMessage, Citation, SelectionQuote, Thread } from "@shared/types";
 import { buildPromptContext } from "@renderer/chat/context";
+import { stripThink } from "@renderer/chat/think";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 
 type ThreadMessage = Thread["messages"][number];
@@ -21,6 +22,9 @@ interface ChatState {
   streamByDoc: Record<string, string>;
   hydratedDocs: Record<string, boolean>;
   lastError: string | null;
+  /** Per-document warning that the last answer was not grounded in the whole document. */
+  noticeByDoc: Record<string, string>;
+  clearNotice: (docId: string) => void;
   hydrate: (docId: string) => Promise<void>;
   ensureActiveThread: (docId: string) => string;
   newThread: (docId: string) => string;
@@ -29,7 +33,7 @@ interface ChatState {
   renameThread: (docId: string, threadId: string, title: string) => void;
   deleteThread: (docId: string, threadId: string) => void;
   exportThread: (docId: string, threadId: string) => Promise<string | null>;
-  send: (docId: string, docPath: string, content: string, selection?: string | null) => Promise<void>;
+  send: (docId: string, docPath: string, content: string, selection?: SelectionQuote | null) => Promise<void>;
   abort: (docId: string) => void;
   handleToken: (event: { streamId: string; delta: string }) => void;
   handleDone: (event: { streamId: string; usage?: unknown }) => void;
@@ -50,8 +54,14 @@ function titleFrom(content: string): string {
   return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
 }
 
-function toChatMessage(message: ThreadMessage): ChatMessage {
-  return { role: message.role, content: message.content };
+export function toChatMessage(message: ThreadMessage): ChatMessage {
+  if (message.role === "assistant") return { role: "assistant", content: stripThink(message.content) };
+  if (!message.quote) return { role: "user", content: message.content };
+  const where = message.quote.page !== undefined ? ` (p.${message.quote.page})` : "";
+  return {
+    role: "user",
+    content: `Highlighted passage${where}:\n"""\n${message.quote.text.trim()}\n"""\n\nQuestion: ${message.content}`
+  };
 }
 
 function persistThread(threadId: string): void {
@@ -67,6 +77,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamByDoc: {},
   hydratedDocs: {},
   lastError: null,
+  noticeByDoc: {},
+
+  clearNotice: (docId) => {
+    if (!get().noticeByDoc[docId]) return;
+    set((state) => {
+      const noticeByDoc = { ...state.noticeByDoc };
+      delete noticeByDoc[docId];
+      return { noticeByDoc };
+    });
+  },
 
   hydrate: async (docId) => {
     if (get().hydratedDocs[docId]) return;
@@ -187,7 +207,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const thread = get().threads[threadId];
     if (!thread) return;
 
-    const userMessage: ThreadMessage = { id: newId(), role: "user", content: trimmed, createdAt: now() };
+    const userMessage: ThreadMessage = {
+      id: newId(),
+      role: "user",
+      content: trimmed,
+      ...(selection ? { quote: selection } : {}),
+      createdAt: now()
+    };
     const assistantId = newId();
     const assistantMessage: ThreadMessage = {
       id: assistantId,
@@ -213,21 +239,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     persistThread(threadId);
 
-    const context = await buildPromptContext(docPath, trimmed, selection ?? undefined);
+    const scope = settings?.chat?.scope ?? "document";
+    const context = await buildPromptContext(docPath, trimmed, scope, selection);
     const streamId = newId();
-    set((state) => ({
-      streams: {
-        ...state.streams,
-        [streamId]: { docId, threadId, messageId: assistantId, streamId, citations: context?.citations ?? [] }
-      },
-      streamByDoc: { ...state.streamByDoc, [docId]: streamId }
-    }));
+    set((state) => {
+      const noticeByDoc = { ...state.noticeByDoc };
+      if (context.notice) noticeByDoc[docId] = context.notice;
+      else delete noticeByDoc[docId];
+      return {
+        streams: {
+          ...state.streams,
+          [streamId]: { docId, threadId, messageId: assistantId, streamId, citations: context.citations }
+        },
+        streamByDoc: { ...state.streamByDoc, [docId]: streamId },
+        noticeByDoc
+      };
+    });
 
     const history = (get().threads[threadId]?.messages ?? [])
       .filter((message) => message.id !== assistantId)
       .map(toChatMessage);
     const messages: ChatMessage[] = [
-      ...(context?.promptContext ? [{ role: "system" as const, content: context.promptContext }] : []),
+      ...(context.promptContext ? [{ role: "system" as const, content: context.promptContext }] : []),
       ...history
     ];
 

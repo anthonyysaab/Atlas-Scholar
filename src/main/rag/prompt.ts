@@ -1,8 +1,9 @@
-import type { Retrieved } from "@shared/types";
+import type { ChatScope, Retrieved } from "@shared/types";
 
 export interface PromptContextOptions {
   docName?: string;
   maxChars?: number;
+  scope?: ChatScope;
 }
 
 function labelFor(chunk: Retrieved): string {
@@ -11,10 +12,28 @@ function labelFor(chunk: Retrieved): string {
   return "";
 }
 
-/** Assemble the grounded system prompt: numbered excerpts labelled with page/section + cite rule. */
-export function buildPromptContext(retrieved: Retrieved[], options: PromptContextOptions = {}): string {
-  if (retrieved.length === 0) return "";
+const MATH_RULE =
+  "Format with Markdown. Write math with $...$ (inline) or $$...$$ (display); never use \\(...\\) or \\[...\\].";
 
+const DOCUMENT_RULES = [
+  "Answer the user's question using ONLY the numbered document excerpts below and any passage the user highlighted.",
+  "Cite every excerpt you rely on with its bracketed number, e.g. [1] or [2][3].",
+  "If the excerpts do not contain the answer, say you could not find it in the document; do not use outside knowledge."
+];
+
+const EXTENDED_RULES = [
+  "Answer in two clearly separated sections, with headings written in the language of the question:",
+  '1. "From the document": use ONLY the numbered excerpts below and any passage the user highlighted. Cite every excerpt you rely on with its bracketed number, e.g. [1] or [2][3]. If they do not answer the question, say the document does not cover it.',
+  '2. "Beyond the document": add general knowledge only if it genuinely helps (context, corrections, examples). Never cite excerpts there. Omit this section entirely if it would add nothing.',
+  "Never mix the two: anything not supported by the excerpts belongs in the second section."
+];
+
+/**
+ * Assemble the system prompt: role, scope rules, formatting rule, then numbered excerpts labelled
+ * with page/section. Always returns a prompt so the model knows it is reading a document even when
+ * nothing was retrieved.
+ */
+export function buildPromptContext(retrieved: Retrieved[], options: PromptContextOptions = {}): string {
   const budget = options.maxChars ?? 12000;
   const numbered: string[] = [];
   let used = 0;
@@ -26,14 +45,13 @@ export function buildPromptContext(retrieved: Retrieved[], options: PromptContex
     numbered.push(block);
     used += block.length;
   }
-  if (numbered.length === 0) return "";
 
-  const instructions = [
-    "You are a reading assistant. Answer the user's question using ONLY the numbered document excerpts below.",
-    "Cite every excerpt you rely on with its bracketed number, e.g. [1] or [2][3].",
-    "If the excerpts do not contain the answer, say you could not find it in the document; do not use outside knowledge."
-  ];
-  if (options.docName) instructions.push(`Document: ${options.docName}`);
+  const role = options.docName
+    ? `You are a reading assistant helping the user understand the document "${options.docName}".`
+    : "You are a reading assistant helping the user understand a document.";
+  const rules = options.scope === "extended" ? EXTENDED_RULES : DOCUMENT_RULES;
+  const instructions = [role, ...rules, "Answer in the language of the user's question.", MATH_RULE];
 
-  return [instructions.join("\n"), "Document excerpts:", ...numbered].join("\n\n");
+  const excerpts = numbered.length > 0 ? ["Document excerpts:", ...numbered] : ["No document excerpts are available."];
+  return [instructions.join("\n"), ...excerpts].join("\n\n");
 }

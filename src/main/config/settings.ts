@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeEmbeddingProviderId: "ollama",
   activeEmbeddingModel: "nomic-embed-text",
   rag: { topK: 6, chunkTokens: 700, chunkOverlap: 120, mmrLambda: 0.7 },
+  chat: { scope: "document" },
   ui: {
     theme: "dark",
     sidebarOpen: true,
@@ -75,6 +76,7 @@ function normalize(raw: Partial<Settings> | null): Settings {
   const base: Settings = {
     ...DEFAULT_SETTINGS,
     rag: { ...DEFAULT_SETTINGS.rag },
+    chat: { ...DEFAULT_SETTINGS.chat },
     ui: { ...DEFAULT_SETTINGS.ui },
     keysConfigured: {},
     recentFiles: [...(DEFAULT_SETTINGS.recentFiles ?? [])],
@@ -87,6 +89,7 @@ function normalize(raw: Partial<Settings> | null): Settings {
     ...base,
     ...raw,
     rag: { ...base.rag, ...(raw.rag ?? {}) },
+    chat: { scope: raw.chat?.scope === "extended" ? "extended" : "document" },
     ui: { ...base.ui, ...(raw.ui ?? {}) },
     keysConfigured: {},
     recentFiles: Array.isArray(raw.recentFiles)
@@ -128,6 +131,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     ...current,
     ...patch,
     rag: { ...current.rag, ...(patch.rag ?? {}) },
+    chat: { ...current.chat, ...(patch.chat ?? {}) },
     ui: { ...current.ui, ...(patch.ui ?? {}) }
   });
   await persist();

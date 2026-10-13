@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from "node:fs";
-import { resolve } from "node:path";
-import type { IndexStatus, Retrieved } from "@shared/types";
+import { basename, resolve } from "node:path";
+import type { IndexStatus, RagQueryInput, RagQueryResult, Retrieved } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
@@ -271,31 +271,100 @@ export async function removeIndex(docPath: string): Promise<void> {
   statuses.set(path, { docPath: path, ...NONE_STATUS });
 }
 
-export async function queryDocument(input: {
-  docPath: string;
-  question: string;
-  selection?: string;
-  topK?: number;
-}): Promise<{ retrieved: Retrieved[]; promptContext: string }> {
-  const path = resolve(input.docPath);
+const SELECTION_EMBED_CHARS = 1000;
+const FALLBACK_PAGE_CHARS = 5000;
+const FALLBACK_WINDOW_CHARS = 4000;
+const NOTICE_REASON_CHARS = 160;
+
+/** Whole-document retrieval; `null` when the document has no usable index. */
+async function retrieveFromIndex(path: string, input: RagQueryInput): Promise<Retrieved[] | null> {
   let index = await vectorStore.findByDocPath(path);
-  if (index && !indexMatchesModel(index, await activeEmbedModel())) {
+  const model = await activeEmbedModel();
+  if (index && !indexMatchesModel(index, model)) {
     // The embedding model changed since this index was built; rebuild before it can be used so we
     // never score a fresh query against vectors from a different model.
     await indexDocument(path, { force: true });
     index = await vectorStore.findByDocPath(path);
   }
-  if (!index || index.chunks.length === 0) return { retrieved: [], promptContext: "" };
+  if (!index || index.chunks.length === 0 || !indexMatchesModel(index, model)) return null;
 
   const settings = await getSettings();
   const embedder = await resolveEmbedder();
-  const [queryVector] = await embedder.embed([input.question], new AbortController().signal);
-  const retrieved = retrieve(index, queryVector ?? [], {
+  // Embedding the highlighted passage alongside the question lets "what does this mean?" find
+  // the passage's neighbourhood instead of matching only the question's wording.
+  const queryText = input.selection
+    ? `${input.selection.slice(0, SELECTION_EMBED_CHARS)}\n\n${input.question}`
+    : input.question;
+  const [queryVector] = await embedder.embed([queryText], new AbortController().signal);
+  return retrieve(index, queryVector ?? [], {
     topK: input.topK ?? settings.rag.topK,
     mmrLambda: settings.rag.mmrLambda,
     ...(input.selection ? { selection: input.selection } : {})
   });
-  return { retrieved, promptContext: buildPromptContext(retrieved) };
+}
+
+/** Text around the selection, straight from extraction: the page before/at/after, or a window in plain text. */
+async function nearbyText(path: string, page?: number, selection?: string): Promise<Retrieved[]> {
+  const doc = await extractDoc(path);
+  if (page !== undefined && doc.pages && doc.pages.length > 0) {
+    return doc.pages
+      .filter((entry) => Math.abs(entry.index - page) <= 1 && entry.text.trim().length > 0)
+      .map((entry) => ({
+        chunkId: `page-${entry.index}`,
+        score: entry.index === page ? 1 : 0.5,
+        page: entry.index,
+        text: entry.text.slice(0, FALLBACK_PAGE_CHARS)
+      }));
+  }
+  const needle = selection?.trim().slice(0, 80);
+  if (!needle) return [];
+  const at = doc.text.indexOf(needle);
+  if (at < 0) return [];
+  const start = Math.max(0, at - FALLBACK_WINDOW_CHARS / 2);
+  return [{ chunkId: `offset-${start}`, score: 1, text: doc.text.slice(start, start + FALLBACK_WINDOW_CHARS) }];
+}
+
+function describeNearby(nearby: Retrieved[]): string {
+  const pages = nearby.flatMap((chunk) => (chunk.page !== undefined ? [chunk.page] : []));
+  if (pages.length === 0) return "the text around your selection";
+  const first = Math.min(...pages);
+  const last = Math.max(...pages);
+  return first === last ? `page ${first}` : `pages ${first}–${last}`;
+}
+
+export async function queryDocument(input: RagQueryInput): Promise<RagQueryResult> {
+  const path = resolve(input.docPath);
+  const promptFor = (retrieved: Retrieved[]): string =>
+    buildPromptContext(retrieved, { docName: basename(path), scope: input.scope ?? "document" });
+
+  let reason = "Not indexed";
+  try {
+    const retrieved = await retrieveFromIndex(path, input);
+    if (retrieved) return { retrieved, promptContext: promptFor(retrieved), grounding: "index" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    reason = `Search unavailable (${message.slice(0, NOTICE_REASON_CHARS)})`;
+  }
+
+  const nearby =
+    input.page !== undefined || input.selection
+      ? await nearbyText(path, input.page, input.selection).catch(() => [])
+      : [];
+  if (nearby.length > 0) {
+    return {
+      retrieved: nearby,
+      promptContext: promptFor(nearby),
+      grounding: "page",
+      notice: `${reason} — answered from ${describeNearby(nearby)} only. Index the document to search all of it.`
+    };
+  }
+  const seen = input.selection ? "your highlighted passage" : "your question";
+  return {
+    retrieved: [],
+    promptContext: promptFor([]),
+    grounding: "none",
+    notice: `${reason} — the model only sees ${seen}, not the document. Index the document to search it.`
+  };
 }
 
 /** Re-hash and re-index a document when its file changes on disk (incremental). */

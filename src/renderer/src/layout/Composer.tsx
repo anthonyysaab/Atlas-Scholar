@@ -17,6 +17,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: "/clear", description: "Clear this thread" },
   { command: "/index", description: "Index this document" },
   { command: "/reindex", description: "Re-index this document" },
+  { command: "/scope", description: "Toggle document-only / document + outside knowledge" },
   { command: "/export", description: "Export thread to Markdown" },
   { command: "/settings", description: "Open settings" }
 ];
@@ -28,6 +29,8 @@ export function Composer() {
   const setModelPaletteOpen = useAppStore((state) => state.setModelPaletteOpen);
   const providerId = useSettingsStore((state) => state.settings?.activeProviderId ?? "unset");
   const model = useSettingsStore((state) => state.settings?.activeChatModel ?? "");
+  const scope = useSettingsStore((state) => state.settings?.chat?.scope ?? "document");
+  const notice = useChatStore((state) => (doc ? state.noticeByDoc[doc.id] : undefined));
   const send = useChatStore((state) => state.send);
   const abort = useChatStore((state) => state.abort);
   const streaming = useChatStore((state) => (doc ? selectIsStreaming(state, doc.id) : false));
@@ -45,6 +48,26 @@ export function Composer() {
   const menuOpen = matches.length > 0;
 
   useEffect(() => setMenuIndex(0), [slashQuery]);
+
+  const toggleScope = (): void => {
+    void useSettingsStore.getState().patch({ chat: { scope: scope === "document" ? "extended" : "document" } });
+  };
+
+  const indexDocument = async (): Promise<void> => {
+    if (!doc) return;
+    toast.info("Indexing document…");
+    try {
+      const status = await window.api.rag.index(doc.ref.path);
+      if (status.state === "ready") {
+        useChatStore.getState().clearNotice(doc.id);
+        toast.success(`Indexed ${status.chunks} chunks`);
+      } else if (status.state === "error") {
+        toast.error(status.error ?? "Indexing failed");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const runCommand = (command: string): void => {
     if (!doc) return;
@@ -64,7 +87,10 @@ export function Composer() {
         void requestReindex();
         break;
       case "index":
-        void window.api.rag.index(doc.ref.path).catch(() => undefined);
+        void indexDocument();
+        break;
+      case "scope":
+        toggleScope();
         break;
       case "export": {
         const threadId = useChatStore.getState().activeThreadByDoc[doc.id];
@@ -93,6 +119,7 @@ export function Composer() {
       return;
     }
     setText("");
+    setSelection(null);
     void send(doc.id, doc.ref.path, value, selection);
   };
 
@@ -103,11 +130,26 @@ export function Composer() {
 
   return (
     <div className="border-t border-border bg-bg-subtle px-3 py-2">
+      {notice ? (
+        <div className="mb-2 flex items-start gap-2 rounded border border-border bg-panel px-2 py-1 text-[11px] text-text-weak">
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => void indexDocument()} className="shrink-0 text-accent hover:underline">
+            Index now
+          </button>
+        </div>
+      ) : null}
+
       {selection ? (
         <div className="mb-2 flex items-center gap-2">
-          <span className="inline-flex max-w-[280px] items-center gap-1 rounded bg-panel px-2 py-0.5 text-[11px] text-text-weak">
+          <span
+            title={selection.text}
+            className="inline-flex max-w-[280px] items-center gap-1 rounded bg-panel px-2 py-0.5 text-[11px] text-text-weak"
+          >
             <Icon name="annotations" className="h-3 w-3" />
-            <span className="truncate">selection: {selection}</span>
+            <span className="truncate">
+              {selection.page !== undefined ? `p.${selection.page} · ` : ""}
+              {selection.text}
+            </span>
             <button type="button" onClick={() => setSelection(null)} className="hover:text-text">
               <Icon name="close" className="h-3 w-3" />
             </button>
@@ -196,7 +238,21 @@ export function Composer() {
       </div>
 
       <div className="mt-1.5 flex items-center justify-between text-[11px] text-text-weak">
-        <span>/ for commands · /models to switch model</span>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleScope}
+            title={
+              scope === "document"
+                ? "Answers use only the document. Click to also allow outside knowledge in a separate section."
+                : "Answers cite the document first, then add outside knowledge separately. Click for document only."
+            }
+            className="rounded border border-border px-1.5 py-px hover:text-text"
+          >
+            {scope === "document" ? "Doc only" : "Doc + outside"}
+          </button>
+          <span>/ for commands</span>
+        </span>
         <span>
           {streaming ? "generating… · " : ""}
           {providerId}

@@ -42,6 +42,22 @@ describe("tokenize", () => {
     expect(tokens.has("the")).toBe(false);
     expect(tokens.has("fox")).toBe(true);
   });
+
+  it("keeps accented words whole and folds accents", () => {
+    const tokens = tokenize("Le système de la notation polonaise");
+    expect(tokens.has("systeme")).toBe(true);
+    expect(tokens.has("polonaise")).toBe(true);
+    expect(tokens.has("syst")).toBe(false);
+  });
+
+  it("drops French stopwords", () => {
+    const tokens = tokenize("Dans ce cours, nous faisons le choix des formules");
+    expect(tokens.has("dans")).toBe(false);
+    expect(tokens.has("nous")).toBe(false);
+    expect(tokens.has("des")).toBe(false);
+    expect(tokens.has("cours")).toBe(true);
+    expect(tokens.has("formules")).toBe(true);
+  });
 });
 
 describe("mmrSelect", () => {
@@ -87,5 +103,18 @@ describe("retrieve", () => {
       selection: "quantum entanglement resonance"
     });
     expect(top?.chunkId).toBe("h:1");
+  });
+
+  it("boosts French chunks that overlap an accented selection", () => {
+    const chunks = [
+      chunk("f:0", [1, 0], "la météo de la semaine prochaine"),
+      chunk("f:1", [1, 0], "la notation polonaise préfixée évite les parenthèses")
+    ];
+    const [top] = retrieve(index(chunks), [1, 0], {
+      topK: 1,
+      mmrLambda: 0.7,
+      selection: "Notation polonaise préfixée"
+    });
+    expect(top?.chunkId).toBe("f:1");
   });
 });

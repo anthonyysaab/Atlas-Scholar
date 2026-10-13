@@ -85,12 +85,34 @@ export interface RagApi {
   index(docPath: string, opts?: { force?: boolean }): Promise<IndexStatus>;
   status(docPath: string): Promise<IndexStatus>;
   remove(docPath: string): Promise<void>;
-  query(input: {
-    docPath: string;
-    question: string;
-    selection?: string;
-    topK?: number;
-  }): Promise<{ retrieved: Retrieved[]; promptContext: string }>;
+  query(input: RagQueryInput): Promise<RagQueryResult>;
+}
+
+export type ChatScope = "document" | "extended";
+
+export interface RagQueryInput {
+  docPath: string;
+  question: string;
+  selection?: string;
+  /** 1-based page of the selection; lets the main process fall back to nearby page text when unindexed. */
+  page?: number;
+  scope?: ChatScope;
+  topK?: number;
+}
+
+/** How the prompt was grounded: whole-document retrieval, nearby page text only, or nothing. */
+export type Grounding = "index" | "page" | "none";
+
+export interface RagQueryResult {
+  retrieved: Retrieved[];
+  promptContext: string;
+  grounding: Grounding;
+  notice?: string;
+}
+
+export interface SelectionQuote {
+  text: string;
+  page?: number;
 }
 
 export interface ChatMessage {
@@ -171,6 +193,7 @@ export interface Settings {
   activeEmbeddingProviderId: string;
   activeEmbeddingModel: string;
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number };
+  chat: { scope: ChatScope };
   ui: {
     theme: "dark" | "light" | "system";
     sidebarOpen: boolean;
@@ -369,6 +392,7 @@ export interface Thread {
     id: string;
     role: "user" | "assistant";
     content: string;
+    quote?: SelectionQuote;
     citations?: Citation[];
     createdAt: string;
   }[];

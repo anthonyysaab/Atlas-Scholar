@@ -1,8 +1,8 @@
 import { app, dialog } from "electron";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Thread } from "@shared/types";
-import { asArray, asRecord, asString, parseJson } from "@main/providers/json";
+import type { Citation, SelectionQuote, Thread } from "@shared/types";
+import { asArray, asNumber, asRecord, asString, parseJson } from "@main/providers/json";
 
 const DOC_ID_RE = /^[a-zA-Z0-9._-]+$/;
 
@@ -19,6 +19,26 @@ function asRole(value: string | undefined): "user" | "assistant" | null {
   return value === "user" || value === "assistant" ? value : null;
 }
 
+function parseQuote(value: unknown): SelectionQuote | undefined {
+  const record = asRecord(value);
+  const text = asString(record?.["text"]);
+  if (!text) return undefined;
+  const page = asNumber(record?.["page"]);
+  return { text, ...(page !== undefined ? { page } : {}) };
+}
+
+function parseCitations(value: unknown): Citation[] {
+  return asArray(value).flatMap((entry) => {
+    const record = asRecord(entry);
+    const chunkId = asString(record?.["chunkId"]);
+    const snippet = asString(record?.["snippet"]);
+    if (!chunkId || snippet === undefined) return [];
+    const page = asNumber(record?.["page"]);
+    const section = asString(record?.["section"]);
+    return [{ chunkId, snippet, ...(page !== undefined ? { page } : {}), ...(section ? { section } : {}) }];
+  });
+}
+
 function parseThread(value: unknown): Thread | null {
   const record = asRecord(value);
   const id = asString(record?.["id"]);
@@ -32,7 +52,18 @@ function parseThread(value: unknown): Thread | null {
     const content = asString(message?.["content"]);
     const createdAt = asString(message?.["createdAt"]);
     if (!messageId || content === undefined || !createdAt || role === null) return [];
-    return [{ id: messageId, role, content, createdAt }];
+    const quote = parseQuote(message?.["quote"]);
+    const citations = parseCitations(message?.["citations"]);
+    return [
+      {
+        id: messageId,
+        role,
+        content,
+        createdAt,
+        ...(quote ? { quote } : {}),
+        ...(citations.length > 0 ? { citations } : {})
+      }
+    ];
   });
   return { id, docId, title, messages };
 }
@@ -81,7 +112,13 @@ function safeFileName(title: string): string {
 export function threadToMarkdown(thread: Thread): string {
   const lines: string[] = [`# ${thread.title || "Untitled thread"}`, ""];
   for (const message of thread.messages) {
-    lines.push(message.role === "user" ? "## You" : "## Assistant", "", message.content.trim(), "");
+    lines.push(message.role === "user" ? "## You" : "## Assistant", "");
+    if (message.quote) {
+      const quoted = message.quote.text.trim().split(/\r?\n/).map((line) => `> ${line}`);
+      if (message.quote.page !== undefined) quoted.push(`> (p.${message.quote.page})`);
+      lines.push(...quoted, "");
+    }
+    lines.push(message.content.trim(), "");
     if (message.citations && message.citations.length > 0) {
       lines.push("Citations:", "");
       for (const citation of message.citations) {

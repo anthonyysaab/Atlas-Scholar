@@ -8,8 +8,14 @@ const STOPWORDS = new Set([
   "one", "our", "out", "day", "get", "has", "him", "his", "how", "its", "new", "now", "old",
   "see", "two", "way", "who", "boy", "did", "man", "men", "put", "say", "she", "too", "use",
   "that", "this", "with", "from", "they", "what", "when", "where", "which", "while", "would",
-  "there", "their", "them", "then", "than", "into", "onto", "over", "under", "about", "does"
+  "there", "their", "them", "then", "than", "into", "onto", "over", "under", "about", "does",
+  "les", "des", "une", "est", "que", "qui", "dans", "pour", "par", "sur", "avec", "sans", "nous",
+  "vous", "ils", "elle", "elles", "son", "ses", "leur", "leurs", "cet", "cette", "ces", "aux",
+  "mais", "donc", "car", "pas", "plus", "tout", "tous", "toute", "toutes", "sont", "ont", "fait",
+  "etre", "avoir", "comme", "ainsi", "entre", "peut", "aussi", "meme", "ici", "lui", "dont"
 ]);
+
+const COMBINING_MARKS = /[̀-ͯ]/g;
 
 export function normalizeVector(vector: number[]): number[] {
   let sum = 0;
@@ -35,7 +41,9 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 
 export function tokenize(input: string): Set<string> {
   const tokens = new Set<string>();
-  for (const raw of input.toLowerCase().split(/[^a-z0-9]+/)) {
+  // Fold accents so "système" and "systeme" match and accented words are not split mid-word.
+  const folded = input.normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase();
+  for (const raw of folded.split(/[^\p{L}\p{N}]+/u)) {
     if (raw.length < 3 || STOPWORDS.has(raw)) continue;
     tokens.add(raw);
   }

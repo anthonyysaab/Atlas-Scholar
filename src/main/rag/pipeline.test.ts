@@ -102,4 +102,48 @@ describe("RAG pipeline", () => {
     expect(rebuilt.state).toBe("ready");
     expect(rebuilt.embedModel).toBe("model-b");
   });
+
+  it("reports whole-document grounding once indexed", async () => {
+    const docPath = join(harness.userData, "doc.pdf");
+    await indexDocument(docPath);
+    const result = await queryDocument({ docPath, question: "quantum", selection: "Quantum entanglement", page: 2 });
+    expect(result.grounding).toBe("index");
+    expect(result.notice).toBeUndefined();
+  });
+
+  it("falls back to the selection's neighbouring pages when the document is not indexed", async () => {
+    const docPath = join(harness.userData, "doc.pdf");
+    harness.pages = [...makePages(), { index: 3, text: "Gamma ray burst. ".repeat(10) }, { index: 4, text: "Far away." }];
+
+    const result = await queryDocument({ docPath, question: "what is this?", selection: "Quantum", page: 2 });
+    expect(result.grounding).toBe("page");
+    expect(result.retrieved.map((entry) => entry.page)).toEqual([1, 2, 3]);
+    expect(result.promptContext).toContain("(p.2)");
+    expect(result.promptContext).not.toContain("Far away.");
+    expect(result.notice).toMatch(/Not indexed.*pages 1–3/);
+  });
+
+  it("falls back to page text when the embedder is unreachable", async () => {
+    const docPath = join(harness.userData, "doc.pdf");
+    await indexDocument(docPath);
+    // A 404 (model missing) is not retried, so the fallback is reached without backoff delays.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "model not found" }), { status: 404 }))
+    );
+
+    const result = await queryDocument({ docPath, question: "what is this?", selection: "Alpha", page: 1 });
+    expect(result.grounding).toBe("page");
+    expect(result.notice).toMatch(/Search unavailable/);
+    expect(result.promptContext).toContain("(p.1)");
+  });
+
+  it("still sends a system prompt and warns when there is neither an index nor a selection", async () => {
+    const docPath = join(harness.userData, "doc.pdf");
+    const result = await queryDocument({ docPath, question: "summarize", scope: "extended" });
+    expect(result.grounding).toBe("none");
+    expect(result.retrieved).toEqual([]);
+    expect(result.promptContext).toContain('"Beyond the document"');
+    expect(result.notice).toMatch(/not the document/);
+  });
 });

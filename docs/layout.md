@@ -76,10 +76,14 @@ where sensible), not in code.
 Located at the bottom of the **Chat** tab (not the document pane).
 
 - Multi-line prompt input (Enter sends, Shift+Enter newline).
-- **Selection reference**: if the document has an active selection, show a removable chip; when
-  present, the question is scoped/boosted to it.
+- **Selection reference**: if the document has an active selection, show a removable chip (with
+  its page); on send, the passage is quoted into the question, stored on the message, and the chip
+  clears.
+- **Grounding notice**: when the answer could not use the whole-document index, a notice with an
+  "Index now" button appears above the composer.
+- **Scope toggle** in the footer: "Doc only" / "Doc + outside" (also `/scope`).
 - Typing `/` opens a slash-command autocomplete: `/models`, `/new`, `/clear`, `/index`,
-  `/reindex`, `/export`, `/settings`.
+  `/reindex`, `/scope`, `/export`, `/settings`.
 - `/models` opens the model palette (D16): searchable, keyboard-driven, grouped by provider with
   local running/offline status, plus a quick "add local endpoint" form.
 - Streams; Stop button while generating.
