@@ -335,7 +335,7 @@ function describeNearby(nearby: Retrieved[]): string {
 export async function queryDocument(input: RagQueryInput): Promise<RagQueryResult> {
   const path = resolve(input.docPath);
   const promptFor = (retrieved: Retrieved[]): string =>
-    buildPromptContext(retrieved, { docName: basename(path), scope: input.scope ?? "document" });
+    buildPromptContext(retrieved, { docName: basename(path), scope: input.scope ?? "document", study: input.study === true });
 
   let reason = "Not indexed";
   try {

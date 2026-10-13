@@ -42,11 +42,17 @@ async function runChat(
   }
 }
 
-export async function chatStream(req: ChatRequest): Promise<void> {
-  const config = await resolveProviderConfig(req.providerId);
-  if (!config) throw new Error(`Unknown provider: ${req.providerId}`);
+interface ResolvedProvider {
+  config: ProviderConfig;
+  module: ProviderModule;
+  apiKey: string | undefined;
+}
+
+async function resolveProvider(providerId: string): Promise<ResolvedProvider> {
+  const config = await resolveProviderConfig(providerId);
+  if (!config) throw new Error(`Unknown provider: ${providerId}`);
   const module = getModule(config.moduleId);
-  if (!module) throw new Error(`No module for provider: ${req.providerId}`);
+  if (!module) throw new Error(`No module for provider: ${providerId}`);
 
   let apiKey: string | undefined;
   if (config.needsSecret) {
@@ -54,6 +60,29 @@ export async function chatStream(req: ChatRequest): Promise<void> {
     if (!secret) throw new Error(`${config.name} is not configured: add an API key in settings`);
     apiKey = secret;
   }
+  return { config, module, apiKey };
+}
+
+/** Run a chat to completion in main and return the whole reply (for structured tasks, not the chat UI). */
+export async function completeChat(req: Omit<ChatRequest, "streamId">, signal: AbortSignal): Promise<string> {
+  const { config, module, apiKey } = await resolveProvider(req.providerId);
+  let text = "";
+  for await (const chunk of module.chat({
+    baseUrl: config.baseUrl,
+    ...(apiKey !== undefined ? { apiKey } : {}),
+    model: req.model,
+    messages: req.messages,
+    ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+    ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
+    signal
+  })) {
+    text += chunk.delta;
+  }
+  return text;
+}
+
+export async function chatStream(req: ChatRequest): Promise<void> {
+  const { config, module, apiKey } = await resolveProvider(req.providerId);
 
   const controller = new AbortController();
   active.set(req.streamId, controller);

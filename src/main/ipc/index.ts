@@ -2,6 +2,7 @@ import { registerAnnotationsIpc } from "./annotations";
 import { registerBrowserIpc } from "./browser";
 import { registerDocIpc } from "./doc";
 import { registerFileIpc } from "./file";
+import { registerFlashcardsIpc } from "./flashcards";
 import { registerHealthIpc } from "./health";
 import { registerLlmIpc } from "./llm";
 import { registerOnboardingIpc } from "./onboarding";
@@ -27,5 +28,6 @@ export function registerIpcHandlers(): void {
   registerUpdateIpc();
   registerBrowserIpc();
   registerWorkspaceIpc();
+  registerFlashcardsIpc();
   registerStubIpc();
 }

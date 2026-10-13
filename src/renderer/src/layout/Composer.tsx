@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { openSettings, requestReindex } from "@renderer/lib/commands";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
-import { selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
+import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { toast } from "@renderer/state/toastStore";
+import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
 
 interface SlashCommand {
   command: string;
@@ -18,6 +19,8 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: "/index", description: "Index this document" },
   { command: "/reindex", description: "Re-index this document" },
   { command: "/scope", description: "Toggle document-only / document + outside knowledge" },
+  { command: "/study", description: "Toggle study mode for this thread (guided tutoring)" },
+  { command: "/card", description: "Add the selected passage to flashcard generation" },
   { command: "/export", description: "Export thread to Markdown" },
   { command: "/settings", description: "Open settings" }
 ];
@@ -31,6 +34,7 @@ export function Composer() {
   const model = useSettingsStore((state) => state.settings?.activeChatModel ?? "");
   const scope = useSettingsStore((state) => state.settings?.chat?.scope ?? "document");
   const notice = useChatStore((state) => (doc ? state.noticeByDoc[doc.id] : undefined));
+  const study = useChatStore((state) => (doc ? selectActiveThread(state, doc.id)?.study === true : false));
   const send = useChatStore((state) => state.send);
   const abort = useChatStore((state) => state.abort);
   const streaming = useChatStore((state) => (doc ? selectIsStreaming(state, doc.id) : false));
@@ -51,6 +55,12 @@ export function Composer() {
 
   const toggleScope = (): void => {
     void useSettingsStore.getState().patch({ chat: { scope: scope === "document" ? "extended" : "document" } });
+  };
+
+  const toggleStudy = (): void => {
+    if (!doc) return;
+    useChatStore.getState().toggleStudy(doc.id);
+    toast.info(study ? "Study mode off for this thread" : "Study mode on: answers will guide you step by step");
   };
 
   const indexDocument = async (): Promise<void> => {
@@ -91,6 +101,12 @@ export function Composer() {
         break;
       case "scope":
         toggleScope();
+        break;
+      case "study":
+        toggleStudy();
+        break;
+      case "card":
+        addSelectionToFlashcards();
         break;
       case "export": {
         const threadId = useChatStore.getState().activeThreadByDoc[doc.id];
@@ -154,6 +170,14 @@ export function Composer() {
               <Icon name="close" className="h-3 w-3" />
             </button>
           </span>
+          <button
+            type="button"
+            onClick={addSelectionToFlashcards}
+            className="shrink-0 rounded border border-border px-1.5 py-px text-[11px] text-text-weak hover:text-text"
+            title="Queue this passage to generate flashcards from it"
+          >
+            + Card
+          </button>
         </div>
       ) : null}
 
@@ -250,6 +274,22 @@ export function Composer() {
             className="rounded border border-border px-1.5 py-px hover:text-text"
           >
             {scope === "document" ? "Doc only" : "Doc + outside"}
+          </button>
+          <button
+            type="button"
+            onClick={toggleStudy}
+            disabled={disabled}
+            aria-pressed={study}
+            title={
+              study
+                ? "Study mode is on for this thread: the assistant tutors with hints and questions. Click to turn off."
+                : "Turn on study mode for this thread: guided hints and questions instead of direct answers."
+            }
+            className={`rounded border px-1.5 py-px disabled:opacity-40 ${
+              study ? "border-accent text-accent" : "border-border hover:text-text"
+            }`}
+          >
+            Study
           </button>
           <span>/ for commands</span>
         </span>

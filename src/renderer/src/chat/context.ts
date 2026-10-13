@@ -11,13 +11,15 @@ export async function buildPromptContext(
   docPath: string,
   question: string,
   scope: ChatScope,
-  selection?: SelectionQuote | null
+  selection?: SelectionQuote | null,
+  study = false
 ): Promise<PromptContext> {
   try {
     const result = await window.api.rag.query({
       docPath,
       question,
       scope,
+      ...(study ? { study: true } : {}),
       ...(selection ? { selection: selection.text } : {}),
       ...(selection?.page !== undefined ? { page: selection.page } : {})
     });

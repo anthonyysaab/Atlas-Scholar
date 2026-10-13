@@ -22,6 +22,7 @@ function parseQuery(value: unknown): RagQueryInput {
     input.page = record["page"];
   }
   if (record["scope"] === "document" || record["scope"] === "extended") input.scope = record["scope"];
+  if (record["study"] === true) input.study = true;
   if (typeof record["topK"] === "number" && Number.isFinite(record["topK"])) input.topK = record["topK"];
   return input;
 }

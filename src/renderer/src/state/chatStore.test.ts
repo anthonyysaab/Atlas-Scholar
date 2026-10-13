@@ -71,6 +71,27 @@ describe("chatStore.send", () => {
   });
 });
 
+describe("chatStore.toggleStudy", () => {
+  it("turns study mode on for the active thread only and sends it with the query", async () => {
+    const store = useChatStore.getState();
+    const first = store.newThread("doc");
+    store.toggleStudy("doc");
+    expect(useChatStore.getState().threads[first]?.study).toBe(true);
+
+    await useChatStore.getState().send("doc", "C:/cours.pdf", "explique");
+    expect(calls.query[0]?.study).toBe(true);
+
+    const second = useChatStore.getState().newThread("doc");
+    expect(useChatStore.getState().threads[second]?.study).toBeUndefined();
+    await useChatStore.getState().send("doc", "C:/cours.pdf", "encore");
+    expect(calls.query[1]?.study).toBeUndefined();
+
+    useChatStore.getState().setActiveThread("doc", first);
+    useChatStore.getState().toggleStudy("doc");
+    expect(useChatStore.getState().threads[first]?.study).toBeUndefined();
+  });
+});
+
 describe("toChatMessage", () => {
   it("strips reasoning blocks from assistant history", () => {
     const message = { id: "a", role: "assistant" as const, content: "<think>hmm</think>\n\nRéponse", createdAt: "" };

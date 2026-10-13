@@ -10,6 +10,7 @@ import {
   type PDFDocumentProxy,
   type RenderTask
 } from "./pdf";
+import { BookmarkNav } from "./BookmarkNav";
 import "./pdf-viewer.css";
 import type { RendererViewProps } from "./registry";
 import { emitSelection, rectFromDisplay, registerSelectionTarget, type NormalizedRect } from "./selection";
@@ -321,6 +322,11 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
         >
           <span className={currentBookmark ? "text-accent" : undefined}>★</span> Bookmark
         </button>
+        <BookmarkNav
+          target={{ docId, docPath: ref.path, kind: "pdf" }}
+          buttonClassName={toolbarButton}
+          disabled={!pdf}
+        />
         <span className="mx-1 h-4 w-px bg-border" />
         <button
           type="button"

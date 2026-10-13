@@ -24,6 +24,16 @@ describe("buildPromptContext", () => {
     expect(prompt).not.toContain("do not use outside knowledge");
   });
 
+  it("adds tutoring rules only in study mode, on top of either scope", () => {
+    expect(buildPromptContext(excerpts)).not.toContain("Study mode is on");
+    const strict = buildPromptContext(excerpts, { study: true });
+    expect(strict).toContain("Study mode is on");
+    expect(strict).toContain("do not use outside knowledge");
+    const extended = buildPromptContext(excerpts, { scope: "extended", study: true });
+    expect(extended).toContain("Study mode is on");
+    expect(extended).toContain('"Beyond the document"');
+  });
+
   it("still returns a system prompt when nothing was retrieved", () => {
     const prompt = buildPromptContext([]);
     expect(prompt).toContain("reading assistant");

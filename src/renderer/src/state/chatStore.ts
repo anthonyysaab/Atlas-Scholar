@@ -31,6 +31,8 @@ interface ChatState {
   setActiveThread: (docId: string, threadId: string) => void;
   clearActiveThread: (docId: string) => void;
   renameThread: (docId: string, threadId: string, title: string) => void;
+  /** Flip study mode on the active thread, creating one if the document has none yet. */
+  toggleStudy: (docId: string) => void;
   deleteThread: (docId: string, threadId: string) => void;
   exportThread: (docId: string, threadId: string) => Promise<string | null>;
   send: (docId: string, docPath: string, content: string, selection?: SelectionQuote | null) => Promise<void>;
@@ -155,6 +157,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().activeThreadByDoc[docId] === threadId) persistThread(threadId);
   },
 
+  toggleStudy: (docId) => {
+    const threadId = get().ensureActiveThread(docId);
+    const thread = get().threads[threadId];
+    if (!thread) return;
+    const next: Thread = { ...thread };
+    if (thread.study) delete next.study;
+    else next.study = true;
+    set((state) => ({ threads: { ...state.threads, [threadId]: next } }));
+    persistThread(threadId);
+  },
+
   deleteThread: (docId, threadId) => {
     const state = get();
     if (!state.threads[threadId]) return;
@@ -240,7 +253,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     persistThread(threadId);
 
     const scope = settings?.chat?.scope ?? "document";
-    const context = await buildPromptContext(docPath, trimmed, scope, selection);
+    const context = await buildPromptContext(docPath, trimmed, scope, selection, thread.study === true);
     const streamId = newId();
     set((state) => {
       const noticeByDoc = { ...state.noticeByDoc };

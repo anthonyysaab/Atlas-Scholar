@@ -170,6 +170,7 @@ interface RagQueryInput {
   selection?: string          // embedded with the question and boosts overlapping chunks
   page?: number               // 1-based page of the selection; enables the unindexed fallback
   scope?: ChatScope           // default "document"
+  study?: boolean             // study mode: adds tutoring rules to the system prompt (either scope)
   topK?: number               // default from settings
 }
 
@@ -256,7 +257,7 @@ interface ProvidersApi {
 ### 1.7 `SettingsApi` and events
 
 ```ts
-type PanelTab = "chat" | "annotations" | "context" | "search"
+type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards"
 
 interface Settings {
   activeProviderId: string
@@ -429,6 +430,48 @@ interface BrowserApi {
 and title change. The view uses a `persist:rabrowser` session with permission requests denied, so
 web content is never subject to the renderer's strict CSP and no renderer CSP relaxation is needed.
 
+### 1.11 `FlashcardsApi`
+
+Named decks of question/answer cards that span documents, reviewed with spaced repetition (SM-2,
+Anki-style grades; pure scheduler in `src/shared/srs.ts`). Persisted to `userData/flashcards.json`
+(versioned, temp-write + rename, writes serialized). Documents are never modified.
+
+```ts
+interface Deck { id: string; name: string; createdAt: string }
+interface FlashcardSource { docPath: string; text: string; page?: number }   // passage a card came from
+interface CardSchedule { due: string; interval: number; ease: number; reps: number; lapses: number }
+interface Flashcard extends CardSchedule {
+  id: string; deckId: string
+  question: string; answer: string   // Markdown + $...$ math
+  source?: FlashcardSource           // absent for hand-written cards
+  createdAt: string
+}
+type ReviewGrade = "again" | "hard" | "good" | "easy"
+interface CardDraft { question: string; answer: string; source?: FlashcardSource }
+interface GenerateCardsInput { providerId: string; model: string; passages: FlashcardSource[]; maxCards?: number }
+
+interface FlashcardsApi {
+  decks: {
+    list(): Promise<Deck[]>
+    create(name: string): Promise<Deck>
+    rename(id: string, name: string): Promise<Deck>
+    remove(id: string): Promise<void>                 // also deletes the deck's cards
+  }
+  cards: {
+    list(deckId: string): Promise<Flashcard[]>
+    add(deckId: string, drafts: CardDraft[]): Promise<Flashcard[]>
+    update(id: string, patch: { question?: string; answer?: string }): Promise<Flashcard>
+    remove(id: string): Promise<void>
+    review(id: string, grade: ReviewGrade): Promise<Flashcard>   // reschedules in main
+  }
+  generate(input: GenerateCardsInput): Promise<CardDraft[]>      // one non-streamed model call; drafts are not saved
+  exportAnki(deckId: string): Promise<string | null>             // save dialog → Anki text import (TSV with #deck/#notetype headers)
+}
+```
+
+`generate` asks the model for strict JSON (`{"cards": [{question, answer, passage}]}`), tolerates
+`<think>` blocks and code fences, drops duplicates, and caps at `maxCards` (default 20, max 50).
+
 ---
 
 ## 2. Provider module interface (main process)
@@ -532,6 +575,7 @@ interface Thread {
   id: string
   docId: string
   title: string
+  study?: boolean               // study mode for this thread (absent = off); sent as RagQueryInput.study
   messages: {
     id: string
     role: "user" | "assistant"

@@ -2,6 +2,7 @@ import { AnnotationsTab } from "./AnnotationsTab";
 import { BookmarksTab } from "./BookmarksTab";
 import { ChatTab } from "./ChatTab";
 import { ContextTab } from "./ContextTab";
+import { FlashcardsTab } from "./FlashcardsTab";
 import { SearchTab } from "./SearchTab";
 import { registerSidePanelTab } from "./sidePanelRegistry";
 
@@ -13,6 +14,7 @@ export function registerDefaultSidePanelTabs(): void {
   registerSidePanelTab({ id: "chat", label: "Chat", order: 0, render: () => <ChatTab /> });
   registerSidePanelTab({ id: "annotations", label: "Annotations", order: 1, render: () => <AnnotationsTab /> });
   registerSidePanelTab({ id: "bookmarks", label: "Bookmarks", order: 2, render: () => <BookmarksTab /> });
-  registerSidePanelTab({ id: "context", label: "Context", order: 3, render: () => <ContextTab /> });
-  registerSidePanelTab({ id: "search", label: "Search", order: 4, render: () => <SearchTab /> });
+  registerSidePanelTab({ id: "flashcards", label: "Cards", order: 3, render: () => <FlashcardsTab /> });
+  registerSidePanelTab({ id: "context", label: "Context", order: 4, render: () => <ContextTab /> });
+  registerSidePanelTab({ id: "search", label: "Search", order: 5, render: () => <SearchTab /> });
 }

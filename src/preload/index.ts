@@ -13,10 +13,14 @@ import type {
   BrowserApi,
   BrowserBounds,
   BrowserState,
+  CardDraft,
   ChatRequest,
+  Deck,
   DocApi,
   ExtractedDoc,
   FileRef,
+  Flashcard,
+  FlashcardsApi,
   HealthReport,
   IndexStatus,
   ModelInfo,
@@ -188,6 +192,24 @@ const workspaceApi: Api["workspace"] = {
   }
 };
 
+const flashcardsApi: FlashcardsApi = {
+  decks: {
+    list: () => invoke<Deck[]>(IPC.flashcards.decksList),
+    create: (name) => invoke<Deck>(IPC.flashcards.decksCreate, name),
+    rename: (id, name) => invoke<Deck>(IPC.flashcards.decksRename, id, name),
+    remove: (id) => invoke<void>(IPC.flashcards.decksRemove, id)
+  },
+  cards: {
+    list: (deckId) => invoke<Flashcard[]>(IPC.flashcards.cardsList, deckId),
+    add: (deckId, drafts) => invoke<Flashcard[]>(IPC.flashcards.cardsAdd, deckId, drafts),
+    update: (id, patch) => invoke<Flashcard>(IPC.flashcards.cardsUpdate, id, patch),
+    remove: (id) => invoke<void>(IPC.flashcards.cardsRemove, id),
+    review: (id, grade) => invoke<Flashcard>(IPC.flashcards.cardsReview, id, grade)
+  },
+  generate: (input) => invoke<CardDraft[]>(IPC.flashcards.generate, input),
+  exportAnki: (deckId) => invoke<string | null>(IPC.flashcards.exportAnki, deckId)
+};
+
 const api: Api = {
   file: fileApi,
   doc: docApi,
@@ -202,7 +224,8 @@ const api: Api = {
   onboarding: onboardingApi,
   update: updateApi,
   browser: browserApi,
-  workspace: workspaceApi
+  workspace: workspaceApi,
+  flashcards: flashcardsApi
 };
 
 contextBridge.exposeInMainWorld("api", api);

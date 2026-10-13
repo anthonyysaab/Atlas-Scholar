@@ -6,10 +6,11 @@ import { Icon } from "@renderer/components/Icon";
 import { Markdown } from "@renderer/components/Markdown";
 import { formatBytes } from "@renderer/lib/format";
 import { useAppStore } from "@renderer/state/appStore";
-import { NO_BOOKMARKS, useBookmarkStore } from "@renderer/state/bookmarkStore";
+import { useBookmarkStore } from "@renderer/state/bookmarkStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
 import { BOOKMARK_JUMP_EVENT, type BookmarkJumpDetail } from "./bookmarkJump";
+import { BookmarkNav } from "./BookmarkNav";
 import { languageForExt } from "./languages";
 import type { RendererViewProps } from "./registry";
 import { clearSelectionForDoc, emitSelection } from "./selection";
@@ -36,7 +37,6 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
   const setDocDirty = useAppStore((state) => state.setDocDirty);
   const setSelection = useAppStore((state) => state.setSelection);
   const themePref = useSettingsStore((state) => state.settings?.ui.theme ?? "dark");
-  const bookmarks = useBookmarkStore((state) => state.byDoc[ref.path] ?? NO_BOOKMARKS);
   const loadBookmarks = useBookmarkStore((state) => state.load);
   const addBookmark = useBookmarkStore((state) => state.add);
   const setPosition = useViewStateStore((state) => state.setPosition);
@@ -288,8 +288,14 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
             className="rounded border border-border px-2 py-0.5 hover:bg-panel hover:text-text"
             title="Bookmark the current position"
           >
-            ★ Bookmark{bookmarks.length > 0 ? ` (${bookmarks.length})` : ""}
+            ★ Bookmark
           </button>
+        ) : null}
+        {mode === "edit" ? (
+          <BookmarkNav
+            target={{ docId, docPath: ref.path, kind: "text" }}
+            buttonClassName="rounded border border-border px-2 py-0.5 hover:bg-panel hover:text-text disabled:opacity-40"
+          />
         ) : null}
         <button
           type="button"

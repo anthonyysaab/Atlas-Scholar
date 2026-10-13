@@ -65,7 +65,7 @@ function parseThread(value: unknown): Thread | null {
       }
     ];
   });
-  return { id, docId, title, messages };
+  return { id, docId, title, ...(record?.["study"] === true ? { study: true } : {}), messages };
 }
 
 export async function saveThread(thread: Thread): Promise<void> {

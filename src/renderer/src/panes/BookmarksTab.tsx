@@ -3,8 +3,7 @@ import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { NO_BOOKMARKS, useBookmarkStore } from "@renderer/state/bookmarkStore";
-import { jumpToBookmark } from "@renderer/viewer/bookmarkJump";
-import { useViewStateStore } from "@renderer/state/viewStateStore";
+import { jumpToBookmark, sortBookmarks } from "@renderer/viewer/bookmarkJump";
 
 export function BookmarksTab() {
   const doc = useAppStore(selectActiveDoc);
@@ -12,7 +11,6 @@ export function BookmarksTab() {
   const bookmarks = useBookmarkStore((state) => (docPath ? state.byDoc[docPath] ?? NO_BOOKMARKS : NO_BOOKMARKS));
   const load = useBookmarkStore((state) => state.load);
   const remove = useBookmarkStore((state) => state.remove);
-  const setPosition = useViewStateStore((state) => state.setPosition);
 
   useEffect(() => {
     if (docPath) void load(docPath);
@@ -24,10 +22,7 @@ export function BookmarksTab() {
 
   const jump = (id: string): void => {
     const bookmark = bookmarks.find((entry) => entry.id === id);
-    if (!bookmark) return;
-    if (bookmark.page !== undefined) setPosition(docPath, { page: bookmark.page });
-    else if (bookmark.position !== undefined) setPosition(docPath, { position: bookmark.position });
-    jumpToBookmark(doc, bookmark);
+    if (bookmark) jumpToBookmark({ docId: doc.id, docPath, kind: doc.kind }, bookmark);
   };
 
   return (
@@ -41,7 +36,7 @@ export function BookmarksTab() {
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
-          {bookmarks.map((bookmark) => (
+          {sortBookmarks(bookmarks).map((bookmark) => (
             <li key={bookmark.id} className="group flex items-center gap-1">
               <button
                 type="button"

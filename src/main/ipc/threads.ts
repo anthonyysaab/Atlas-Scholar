@@ -43,7 +43,13 @@ function asThread(value: unknown): Thread {
       ...(Array.isArray(message.citations) ? { citations: message.citations } : {})
     };
   });
-  return { id: thread.id, docId: thread.docId, title: thread.title, messages };
+  return {
+    id: thread.id,
+    docId: thread.docId,
+    title: thread.title,
+    ...(thread.study === true ? { study: true } : {}),
+    messages
+  };
 }
 
 export function registerThreadsIpc(): void {

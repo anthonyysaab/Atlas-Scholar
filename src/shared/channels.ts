@@ -65,6 +65,19 @@ export const IPC = {
     check: "update:check",
     install: "update:install"
   },
+  flashcards: {
+    decksList: "flashcards:decks:list",
+    decksCreate: "flashcards:decks:create",
+    decksRename: "flashcards:decks:rename",
+    decksRemove: "flashcards:decks:remove",
+    cardsList: "flashcards:cards:list",
+    cardsAdd: "flashcards:cards:add",
+    cardsUpdate: "flashcards:cards:update",
+    cardsRemove: "flashcards:cards:remove",
+    cardsReview: "flashcards:cards:review",
+    generate: "flashcards:generate",
+    exportAnki: "flashcards:exportAnki"
+  },
   browser: {
     open: "browser:open",
     navigate: "browser:navigate",
