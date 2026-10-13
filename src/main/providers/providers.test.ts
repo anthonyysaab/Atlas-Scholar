@@ -4,7 +4,8 @@ import { parseCatalogModels } from "./catalogParse";
 import { requireBody } from "./http";
 import { ollama } from "./ollama";
 import { openaiCompatible } from "./openaiCompatible";
-import { getModule, getProviderConfig, resolveConfigsFrom } from "./registry";
+import { invalidateProbe, probeLocal } from "./probe";
+import { getModule, getProviderConfig, resolveConfigsFrom, type ProviderConfig } from "./registry";
 import { parseSse } from "./sse";
 
 function streamResponse(chunks: string[], init?: ResponseInit): Response {
@@ -233,6 +234,25 @@ describe("resolveConfigsFrom", () => {
     });
   });
 
+  it("keeps LM Studio port discovery when an override leaves the default URL", () => {
+    const base = getProviderConfig("lmstudio");
+    if (!base) throw new Error("lmstudio preset missing");
+    const override = { ...base, name: "LM Studio (renamed)" };
+    const configs = resolveConfigsFrom([override], []);
+    expect(configs.find((config) => config.id === "lmstudio")?.fallbackBaseUrls).toEqual(
+      base.fallbackBaseUrls
+    );
+  });
+
+  it("drops LM Studio port discovery when the user sets their own URL", () => {
+    const base = getProviderConfig("lmstudio");
+    if (!base) throw new Error("lmstudio preset missing");
+    const override = { ...base, baseUrl: "http://192.168.1.5:1234/v1" };
+    const lmstudio = resolveConfigsFrom([override], []).find((config) => config.id === "lmstudio");
+    expect(lmstudio?.baseUrl).toBe("http://192.168.1.5:1234/v1");
+    expect(lmstudio?.fallbackBaseUrls).toBeUndefined();
+  });
+
   it("ignores a custom provider whose module is unknown", () => {
     const configs = resolveConfigsFrom(
       [{ id: "weird", name: "Weird", moduleId: "nope", kind: "remote", baseUrl: "x", needsSecret: false }],
@@ -257,6 +277,51 @@ describe("resolveConfigsFrom", () => {
     );
     expect(configs.filter((config) => config.id === "openai")).toHaveLength(1);
     expect(configs.find((config) => config.id === "openai")?.baseUrl).toBe("https://example.test/v1");
+  });
+});
+
+describe("local endpoint probing", () => {
+  const config: ProviderConfig = {
+    id: "probe-test",
+    name: "Probe test",
+    moduleId: "openai-compatible",
+    kind: "local",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    fallbackBaseUrls: ["http://127.0.0.1:1235/v1"],
+    needsSecret: false
+  };
+
+  function serveOn(...liveBaseUrls: string[]): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (!liveBaseUrls.some((base) => url.startsWith(base))) throw new TypeError("fetch failed");
+        return new Response(JSON.stringify({ data: [{ id: "qwen3-8b" }] }), { status: 200 });
+      })
+    );
+  }
+
+  afterEach(() => invalidateProbe());
+
+  it("falls back to the next port when the default isn't answering", async () => {
+    serveOn("http://127.0.0.1:1235/v1");
+    const result = await probeLocal(config);
+    expect(result).toMatchObject({ running: true, baseUrl: "http://127.0.0.1:1235/v1" });
+    expect(result.models.map((model) => model.id)).toEqual(["qwen3-8b"]);
+  });
+
+  it("prefers the default port when several are live", async () => {
+    serveOn("http://127.0.0.1:1234/v1", "http://127.0.0.1:1235/v1");
+    expect((await probeLocal(config)).baseUrl).toBe("http://127.0.0.1:1234/v1");
+  });
+
+  it("reports the default port when nothing is running", async () => {
+    serveOn();
+    expect(await probeLocal(config)).toEqual({
+      running: false,
+      models: [],
+      baseUrl: "http://127.0.0.1:1234/v1"
+    });
   });
 });
 

@@ -70,7 +70,7 @@ export function OnboardingModal({ status, onClose }: { status: OnboardingStatus;
             ) : (
               <p className="flex items-center gap-2 text-text-weak">
                 <Icon name="alert" className="h-3 w-3" /> No local runtime detected (Ollama :11434 or LM Studio
-                :1234). You can still use a cloud provider with an API key.
+                :1234/:1235). You can still use a cloud provider with an API key.
               </p>
             )}
           </div>

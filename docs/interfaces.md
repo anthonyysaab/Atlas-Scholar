@@ -233,7 +233,7 @@ interface ProviderInfo {
   running?: boolean             // local only
   chatModels: ModelInfo[]
   embeddingModels: ModelInfo[]
-  baseUrl?: string              // effective base URL (M5); safe to show in settings
+  baseUrl?: string              // effective base URL (M5), i.e. the live one after port discovery; safe to show in settings
   moduleId?: string             // adapter id, e.g. "openai-compatible" (M5)
   needsSecret?: boolean         // requires an API key (M5)
 }
@@ -248,7 +248,7 @@ interface ProviderModuleDescriptor {   // M5: available adapters for a "new prov
 
 interface ProvidersApi {
   list(): Promise<ProviderInfo[]>
-  detectLocal(): Promise<ProviderInfo[]>          // probes Ollama :11434, LM Studio :1234/v1
+  detectLocal(): Promise<ProviderInfo[]>          // probes Ollama :11434, LM Studio :1234/v1 then :1235/v1 (Bionic)
   test(providerId: string): Promise<{ ok: boolean; error?: string }>
   modules(): Promise<ProviderModuleDescriptor[]>  // M5
 }

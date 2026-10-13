@@ -46,7 +46,9 @@ catalog-driven provider resolution.
 **Why:** Local-first, no cost, works offline. The 27B model on a 6 GB Quadro leans on CPU/RAM;
 `qwen3:8b` is the snappy daily driver.
 **Consequence:** First-run detects running local runtimes (Ollama `:11434`, LM Studio `:1234/v1`)
-and offers the user's existing model rather than forcing a download.
+and offers the user's existing model rather than forcing a download. LM Studio's Bionic app serves
+on `:1235/v1` so it can coexist with classic LM Studio; the provider tries `:1234` first, falls back
+to `:1235`, and uses whichever answers unless the user has set their own URL.
 
 ## D7 — Embeddings: configurable, default `nomic-embed-text` via Ollama
 **Decision:** Embeddings are fully configurable (Ollama / OpenAI-compatible / local

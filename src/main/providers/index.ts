@@ -5,14 +5,26 @@ import { catalogModelsFor, loadCatalog, type Catalog } from "./catalog";
 import { probeLocal } from "./probe";
 import { getModule, resolveConfigsFrom, type ProviderConfig } from "./registry";
 
-/** Built-ins (minus user-hidden ones, with overrides applied) plus custom user providers. */
-export async function resolveProviderConfigs(): Promise<ProviderConfig[]> {
+async function configuredProviders(): Promise<ProviderConfig[]> {
   const settings = await getSettings().catch(() => null);
   return resolveConfigsFrom(settings?.providers ?? [], settings?.hiddenProviders ?? []);
 }
 
+/** Points a provider with fallback endpoints at whichever one is actually answering. */
+async function withLiveEndpoint(config: ProviderConfig): Promise<ProviderConfig> {
+  if (!config.fallbackBaseUrls?.length) return config;
+  const { baseUrl } = await probeLocal(config);
+  return { ...config, baseUrl };
+}
+
+/** Built-ins (minus user-hidden ones, with overrides applied) plus custom user providers. */
+export async function resolveProviderConfigs(): Promise<ProviderConfig[]> {
+  return Promise.all((await configuredProviders()).map(withLiveEndpoint));
+}
+
 export async function resolveProviderConfig(id: string): Promise<ProviderConfig | undefined> {
-  return (await resolveProviderConfigs()).find((config) => config.id === id);
+  const config = (await configuredProviders()).find((entry) => entry.id === id);
+  return config ? withLiveEndpoint(config) : undefined;
 }
 
 function mergeModels(primary: ModelInfo[], extra: ModelInfo[] | undefined): ModelInfo[] {

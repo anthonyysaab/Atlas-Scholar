@@ -11,6 +11,8 @@ export interface ProviderConfig {
   moduleId: string;
   kind: "local" | "remote";
   baseUrl: string;
+  /** Tried in order after `baseUrl` when it doesn't answer; the first live one wins. */
+  fallbackBaseUrls?: string[];
   needsSecret: boolean;
   secretId?: string;
   catalogId?: string;
@@ -44,6 +46,8 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     moduleId: "openai-compatible",
     kind: "local",
     baseUrl: "http://127.0.0.1:1234/v1",
+    // LM Studio's Bionic app serves on 1235 so it can coexist with classic LM Studio on 1234.
+    fallbackBaseUrls: ["http://127.0.0.1:1235/v1"],
     needsSecret: false
   },
   {
@@ -129,8 +133,10 @@ export function listProviderModules(): ProviderModuleDescriptor[] {
 
 function applyOverride(base: ProviderConfig, override: StoredProvider | undefined): ProviderConfig {
   if (!override) return base;
+  // A user-chosen URL is authoritative; only keep auto-discovery while they're on the default.
+  const { fallbackBaseUrls: _fallbacks, ...withoutFallbacks } = base;
   return {
-    ...base,
+    ...(override.baseUrl === base.baseUrl ? base : withoutFallbacks),
     name: override.name,
     moduleId: override.moduleId,
     kind: override.kind,

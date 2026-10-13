@@ -7,6 +7,8 @@ const PROBE_TTL_MS = 10_000;
 interface ProbeResult {
   running: boolean;
   models: ModelInfo[];
+  /** The endpoint that answered, or the configured default when none did. */
+  baseUrl: string;
 }
 
 interface CacheEntry {
@@ -41,14 +43,18 @@ export async function probeLocal(config: ProviderConfig): Promise<ProbeResult> {
   const cached = cache.get(config.id);
   if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.result;
 
-  let result: ProbeResult = { running: false, models: [] };
+  let result: ProbeResult = { running: false, models: [], baseUrl: config.baseUrl };
   const module = getModule(config.moduleId);
   if (module && config.kind === "local") {
-    try {
-      const models = await withTimeout(module.listModels({ baseUrl: config.baseUrl }), PROBE_TIMEOUT_MS);
-      result = { running: true, models };
-    } catch {
-      result = { running: false, models: [] };
+    const candidates = [config.baseUrl, ...(config.fallbackBaseUrls ?? [])];
+    // Probed in parallel so a dead default port doesn't delay finding the live one.
+    const attempts = await Promise.allSettled(
+      candidates.map((baseUrl) => withTimeout(module.listModels({ baseUrl }), PROBE_TIMEOUT_MS))
+    );
+    const index = attempts.findIndex((attempt) => attempt.status === "fulfilled");
+    const live = attempts[index];
+    if (live?.status === "fulfilled") {
+      result = { running: true, models: live.value, baseUrl: candidates[index] ?? config.baseUrl };
     }
   }
 
