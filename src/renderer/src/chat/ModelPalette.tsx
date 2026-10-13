@@ -113,7 +113,7 @@ function AddLocalEndpointForm({
           />
         </label>
       </div>
-      {error ? <p className="mt-1 text-[11px] text-red-300">{error}</p> : null}
+      {error ? <p className="mt-1 text-[11px] text-danger">{error}</p> : null}
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded border border-border px-2 py-1 text-[11px] text-text-weak hover:text-text">
           Cancel
@@ -258,7 +258,7 @@ export function ModelPalette() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {error ? <p className="px-3 py-2 text-[11px] text-red-300">{error}</p> : null}
+          {error ? <p className="px-3 py-2 text-[11px] text-danger">{error}</p> : null}
           {!error && flat.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-text-weak">
               No models found. Start a local runtime, add an endpoint below, or set an API key in settings.

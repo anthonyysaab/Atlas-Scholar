@@ -131,7 +131,7 @@ export function Transcript({ docId, docPath }: { docId: string; docPath: string 
           />
         ))}
         {lastError ? (
-          <div className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-300">
+          <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">
             {lastError}
           </div>
         ) : null}

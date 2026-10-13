@@ -11,6 +11,10 @@
   --text: #e6e8ec;
   --text-weak: #9aa1ab;
   --accent: #4c8dff;
+  --danger: #fca5a5;
+  --danger-rgb: 252 165 165;
+  --warning: #fcd34d;
+  --warning-rgb: 252 211 77;
   --syntax-string: #a5d6a7;
   --syntax-keyword: #c792ea;
   --syntax-comment: #6b7280;
@@ -28,6 +32,10 @@
   --text: #1a1d21;
   --text-weak: #646b76;
   --accent: #2563eb;
+  --danger: #b91c1c;
+  --danger-rgb: 185 28 28;
+  --warning: #92400e;
+  --warning-rgb: 146 64 14;
   --syntax-string: #2f855a;
   --syntax-keyword: #805ad5;
   --syntax-comment: #94a3b8;

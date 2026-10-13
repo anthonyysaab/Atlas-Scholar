@@ -7,7 +7,7 @@ import { toast } from "@renderer/state/toastStore";
 const STATE_STYLE: Record<HealthCheck["state"], string> = {
   ok: "text-anno-green",
   degraded: "text-anno-yellow",
-  down: "text-red-300",
+  down: "text-danger",
   unconfigured: "text-text-weak"
 };
 

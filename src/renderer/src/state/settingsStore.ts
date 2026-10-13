@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { THEME_PREFS } from "@shared/themes";
 import type { Settings } from "@shared/types";
 
 type UI = Settings["ui"];
@@ -11,8 +12,6 @@ export const DEFAULT_UI: UI = {
   sidebarSize: 20,
   panelSize: 30
 };
-
-const THEME_ORDER: Settings["ui"]["theme"][] = ["dark", "light", "system"];
 
 interface SettingsState {
   settings: Settings | null;
@@ -49,8 +48,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   cycleTheme: async () => {
     const current = get().settings?.ui.theme ?? "dark";
-    const index = THEME_ORDER.indexOf(current);
-    const next = THEME_ORDER[(index + 1) % THEME_ORDER.length] ?? "dark";
+    const index = THEME_PREFS.indexOf(current);
+    const next = THEME_PREFS[(index + 1) % THEME_PREFS.length] ?? "dark";
     await get().patchUI({ theme: next });
   }
 }));

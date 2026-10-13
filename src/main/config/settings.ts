@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isThemePref } from "@shared/themes";
 import type { Settings, StoredProvider } from "@shared/types";
 import { listConfiguredSecrets } from "./keyVault";
 
@@ -85,12 +86,14 @@ function normalize(raw: Partial<Settings> | null): Settings {
     onboardingComplete: false
   };
   if (!raw) return base;
+  const ui = { ...base.ui, ...(raw.ui ?? {}) };
+  if (!isThemePref(ui.theme)) ui.theme = base.ui.theme;
   return {
     ...base,
     ...raw,
     rag: { ...base.rag, ...(raw.rag ?? {}) },
     chat: { scope: raw.chat?.scope === "extended" ? "extended" : "document" },
-    ui: { ...base.ui, ...(raw.ui ?? {}) },
+    ui,
     keysConfigured: {},
     recentFiles: Array.isArray(raw.recentFiles)
       ? raw.recentFiles.filter((p): p is string => typeof p === "string").slice(0, MAX_RECENT_FILES)

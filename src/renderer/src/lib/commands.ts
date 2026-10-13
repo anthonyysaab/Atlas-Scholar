@@ -1,4 +1,4 @@
-import type { PanelTab } from "@shared/types";
+import type { PanelTab, ThemePref } from "@shared/types";
 import { useAppStore, selectActiveDoc } from "@renderer/state/appStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 
@@ -37,6 +37,10 @@ export async function switchPanelTab(tab: PanelTab): Promise<void> {
 
 export async function cycleTheme(): Promise<void> {
   await useSettingsStore.getState().cycleTheme();
+}
+
+export async function setTheme(theme: ThemePref): Promise<void> {
+  await useSettingsStore.getState().patchUI({ theme });
 }
 
 export async function requestReindex(force = true): Promise<void> {

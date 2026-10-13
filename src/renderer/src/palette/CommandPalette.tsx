@@ -5,6 +5,7 @@ import {
   openSettings,
   requestReindex,
   setPaletteOpen,
+  setTheme,
   switchPanelTab,
   togglePanel,
   toggleSidebar
@@ -14,6 +15,7 @@ import { selectActiveThread, useChatStore } from "@renderer/state/chatStore";
 import { toast } from "@renderer/state/toastStore";
 import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
 import { useUpdateStore } from "@renderer/state/updateStore";
+import { THEMES } from "@renderer/theme/themes";
 
 interface Command {
   id: string;
@@ -39,7 +41,13 @@ export function CommandPalette() {
       { id: "card", label: "Add selection to flashcards (/card)", run: () => addSelectionToFlashcards() },
       { id: "context", label: "Switch to Context", run: () => void switchPanelTab("context") },
       { id: "search", label: "Switch to Search", run: () => void switchPanelTab("search") },
-      { id: "theme", label: "Toggle theme", run: () => void cycleTheme() },
+      { id: "theme", label: "Cycle theme", run: () => void cycleTheme() },
+      ...Object.values(THEMES).map((theme) => ({
+        id: `theme:${theme.id}`,
+        label: `Theme: ${theme.label}`,
+        run: () => void setTheme(theme.id)
+      })),
+      { id: "theme:system", label: "Theme: Match system", run: () => void setTheme("system") },
       { id: "reindex", label: "Re-index document", run: () => void requestReindex() },
       { id: "settings", label: "Open settings", run: () => openSettings() },
       {

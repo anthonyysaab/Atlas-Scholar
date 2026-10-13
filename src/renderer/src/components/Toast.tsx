@@ -4,7 +4,7 @@ import { useToastStore, type ToastKind } from "@renderer/state/toastStore";
 const STYLE: Record<ToastKind, string> = {
   info: "border-border bg-panel text-text",
   success: "border-anno-green/50 bg-panel text-text",
-  error: "border-red-500/50 bg-panel text-text"
+  error: "border-danger/50 bg-panel text-text"
 };
 
 const ICON: Record<ToastKind, "check" | "alert" | "context"> = {

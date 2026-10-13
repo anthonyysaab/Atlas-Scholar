@@ -221,7 +221,7 @@ function AddProviderForm({
           <TextInput value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="font-mono" />
         </label>
       </div>
-      {error ? <p className="text-[11px] text-red-300">{error}</p> : null}
+      {error ? <p className="text-[11px] text-danger">{error}</p> : null}
       <div className="flex justify-end gap-2">
         <Button onClick={() => setOpen(false)}>Cancel</Button>
         <Button variant="primary" onClick={() => void submit()}>

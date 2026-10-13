@@ -11,7 +11,13 @@ export default {
         border: "var(--border)",
         text: "var(--text)",
         "text-weak": "var(--text-weak)",
-        accent: "var(--accent)"
+        accent: "var(--accent)",
+        danger: "rgb(var(--danger-rgb) / <alpha-value>)",
+        warning: "rgb(var(--warning-rgb) / <alpha-value>)",
+        "anno-yellow": "var(--anno-yellow)",
+        "anno-green": "var(--anno-green)",
+        "anno-blue": "var(--anno-blue)",
+        "anno-pink": "var(--anno-pink)"
       }
     }
   },

@@ -93,7 +93,7 @@ export function NotePopover({ annotation, position, onClose }: NotePopoverProps)
       </div>
 
       {annotation.stale ? (
-        <p className="mb-2 leading-relaxed text-amber-300">
+        <p className="mb-2 leading-relaxed text-warning">
           The source document changed; this anchor may no longer line up.
         </p>
       ) : null}

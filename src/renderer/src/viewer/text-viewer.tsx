@@ -7,8 +7,8 @@ import { Markdown } from "@renderer/components/Markdown";
 import { formatBytes } from "@renderer/lib/format";
 import { useAppStore } from "@renderer/state/appStore";
 import { useBookmarkStore } from "@renderer/state/bookmarkStore";
-import { useSettingsStore } from "@renderer/state/settingsStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
+import { useResolvedTheme } from "@renderer/theme/ThemeProvider";
 import { BOOKMARK_JUMP_EVENT, type BookmarkJumpDetail } from "./bookmarkJump";
 import { BookmarkNav } from "./BookmarkNav";
 import { languageForExt } from "./languages";
@@ -36,7 +36,7 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
   const lastFileEvent = useAppStore((state) => state.lastFileEvent);
   const setDocDirty = useAppStore((state) => state.setDocDirty);
   const setSelection = useAppStore((state) => state.setSelection);
-  const themePref = useSettingsStore((state) => state.settings?.ui.theme ?? "dark");
+  const scheme = useResolvedTheme();
   const loadBookmarks = useBookmarkStore((state) => state.load);
   const addBookmark = useBookmarkStore((state) => state.add);
   const setPosition = useViewStateStore((state) => state.setPosition);
@@ -347,7 +347,7 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
             ref={editorRef}
             value={value}
             height="100%"
-            theme={themePref === "light" ? "light" : "dark"}
+            theme={scheme}
             extensions={extensions}
             onChange={onChange}
             onUpdate={onUpdate}

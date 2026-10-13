@@ -104,7 +104,7 @@ export function ContextTab() {
           ) : null}
 
           {status?.state === "error" ? (
-            <p className="mt-2 leading-relaxed text-red-300">{status.error ?? "Indexing failed."}</p>
+            <p className="mt-2 leading-relaxed text-danger">{status.error ?? "Indexing failed."}</p>
           ) : null}
         </div>
       </section>

@@ -11,7 +11,7 @@ import { useUpdateStore } from "@renderer/state/updateStore";
 const HEALTH_DOT: Record<string, string> = {
   ok: "bg-anno-green",
   degraded: "bg-anno-yellow",
-  down: "bg-red-400",
+  down: "bg-danger",
   unconfigured: "bg-text-weak"
 };
 

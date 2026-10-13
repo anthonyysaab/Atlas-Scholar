@@ -91,7 +91,7 @@ export function ChatTab() {
               if (!activeThreadId) return;
               if (window.confirm("Delete this thread?")) deleteThread(doc.id, activeThreadId);
             }}
-            className="rounded border border-border px-1.5 py-1 text-text-weak hover:text-red-300 disabled:opacity-40"
+            className="rounded border border-border px-1.5 py-1 text-text-weak hover:text-danger disabled:opacity-40"
             title="Delete thread"
           >
             <Icon name="trash" className="h-3.5 w-3.5" />

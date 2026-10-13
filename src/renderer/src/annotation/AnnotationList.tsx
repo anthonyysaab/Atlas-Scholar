@@ -42,7 +42,7 @@ export function AnnotationList({ docPath }: { docPath: string }) {
   }, [items]);
 
   if (error) {
-    return <p className="rounded border border-border bg-bg-subtle p-2 text-xs leading-relaxed text-amber-300">{error}</p>;
+    return <p className="rounded border border-border bg-bg-subtle p-2 text-xs leading-relaxed text-warning">{error}</p>;
   }
 
   if (items.length === 0) {
@@ -149,7 +149,7 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
               {annotation.quotedText ? snippet(annotation.quotedText, 80) : "(no quoted text)"}
             </span>
             {annotation.stale ? (
-              <span className="shrink-0 rounded bg-amber-400/20 px-1 py-0.5 text-[10px] text-amber-300">
+              <span className="shrink-0 rounded bg-warning/20 px-1 py-0.5 text-[10px] text-warning">
                 stale
               </span>
             ) : null}

@@ -267,7 +267,7 @@ interface Settings {
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number }
   chat: { scope: ChatScope }  // "document": excerpts only; "extended": cited document section, then optional outside knowledge
   ui: {
-    theme: "dark" | "light" | "system"
+    theme: ThemePref            // ThemeId ("dark" | "mid-dark" | "mid-light" | "light" | "deep" | "high-contrast" | "sepia") | "system"; see src/shared/themes.ts
     sidebarOpen: boolean
     panelOpen: boolean
     panelTab: PanelTab          // active side-panel tab (persisted)

@@ -82,7 +82,7 @@ export function Button({
   const styles: Record<string, string> = {
     default: "border-border text-text hover:bg-bg-subtle",
     primary: "border-accent bg-accent/15 text-text hover:bg-accent/25",
-    danger: "border-red-500/50 text-red-300 hover:bg-red-500/10"
+    danger: "border-danger/50 text-danger hover:bg-danger/10"
   };
   return (
     <button

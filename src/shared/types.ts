@@ -1,3 +1,7 @@
+import type { ThemePref } from "./themes";
+
+export type { ThemeId, ThemePref } from "./themes";
+
 export interface FileRef {
   path: string;
   name: string;
@@ -197,7 +201,7 @@ export interface Settings {
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number };
   chat: { scope: ChatScope };
   ui: {
-    theme: "dark" | "light" | "system";
+    theme: ThemePref;
     sidebarOpen: boolean;
     panelOpen: boolean;
     panelTab: PanelTab;
