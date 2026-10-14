@@ -15,6 +15,7 @@ import { DocTabs } from "./DocTabs";
 import { Sidebar } from "./Sidebar";
 import { SidePanel } from "./SidePanel";
 import { StatusBar } from "./StatusBar";
+import { TitleBar } from "./TitleBar";
 
 type UI = Settings["ui"];
 
@@ -87,6 +88,7 @@ export function AppShell() {
   if (narrow) {
     return (
       <div className="flex h-full flex-col">
+        <TitleBar />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen ? (
             <>
@@ -118,6 +120,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-full flex-col">
+      <TitleBar />
       <div className="min-h-0 flex-1">
         <Group
           orientation="horizontal"

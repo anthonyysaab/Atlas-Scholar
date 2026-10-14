@@ -160,7 +160,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24 ${
+      className={`app-no-drag fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24 ${
         closing ? "pointer-events-none animate-fade-out" : "animate-fade-in"
       }`}
       onMouseDown={() => setPaletteOpen(false)}

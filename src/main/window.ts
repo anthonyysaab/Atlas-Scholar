@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
 import { attachBrowser, disposeBrowser } from "@main/browser/service";
 import { bindEventTarget } from "@main/events";
+import { titleBarOverlay, windowBackground } from "@main/titleBar";
 
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -10,8 +11,11 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 768,
     minHeight: 520,
     show: false,
-    backgroundColor: "#0e0f11",
+    backgroundColor: windowBackground(),
     title: "Reading Assistant",
+    // The renderer draws a themed title bar; Windows keeps native caption buttons via the overlay.
+    titleBarStyle: "hidden",
+    titleBarOverlay: titleBarOverlay(),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -22,6 +26,8 @@ export function createMainWindow(): BrowserWindow {
     }
   });
 
+  // The default File/Edit/View menu bar cannot be themed, and the app has its own palette.
+  window.removeMenu();
   bindEventTarget(window.webContents);
   attachBrowser(window);
   window.on("closed", () => disposeBrowser());

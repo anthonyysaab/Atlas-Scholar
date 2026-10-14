@@ -79,6 +79,21 @@ body {
   --dur-med: 180ms;
 }
 
+.app-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* Overlays can cover the title bar's drag region, which would otherwise swallow their clicks. */
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Keep title text clear of the native caption buttons drawn by titleBarOverlay. */
+.title-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px)) + 12px);
+}
+
 @layer base {
   button,
   a,

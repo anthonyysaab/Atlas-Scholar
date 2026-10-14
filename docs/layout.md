@@ -24,6 +24,11 @@ Three resizable regions: **sidebar** (collapsible), **document pane** (flex-grow
 Chat tab**, not under the document — the document pane keeps its full height. A status bar at the
 very bottom shows index state, active provider/model, and token usage.
 
+The window has no native title bar or menu bar (`titleBarStyle: "hidden"`). A themed 32px title
+bar spans the top, showing the app name and active document; it is the window's drag region. The
+Windows caption buttons come from `titleBarOverlay`, which the main process recolors from the
+active theme (`src/main/titleBar.ts`). Overlays that can reach the top edge carry `app-no-drag`.
+
 ## Library sidebar
 
 - List of **open documents** (tabs and multi-open), each with kind icon and dirty indicator.

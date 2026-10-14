@@ -249,7 +249,7 @@ export function HighlightLayer() {
           type="button"
           onClick={() => void createHighlight(pendingSelection)}
           style={{ position: "fixed", left: toolbarPos.left, top: toolbarPos.top, zIndex: 60 }}
-          className="rounded border border-border bg-panel px-2 py-1 text-xs text-text shadow"
+          className="app-no-drag rounded border border-border bg-panel px-2 py-1 text-xs text-text shadow"
         >
           Highlight ⏎H
         </button>

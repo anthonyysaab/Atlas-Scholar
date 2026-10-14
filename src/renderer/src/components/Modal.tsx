@@ -62,7 +62,7 @@ export function Modal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-6 ${
+      className={`app-no-drag fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-6 ${
         closing ? "pointer-events-none animate-fade-out" : "animate-fade-in"
       }`}
       onMouseDown={onClose}

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session } from "electron";
 import { registerIpcHandlers } from "@main/ipc";
+import { initTitleBarTheme } from "@main/titleBar";
 import { createMainWindow } from "@main/window";
 import { buildContentSecurityPolicy } from "@shared/csp";
 
@@ -41,6 +42,7 @@ if (!gotLock) {
 
     registerIpcHandlers();
     createMainWindow();
+    initTitleBarTheme();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
