@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "@renderer/components/Icon";
+import { usePresence } from "@renderer/hooks/usePresence";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -18,6 +19,7 @@ export function Modal({
   width?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const { mounted, closing } = usePresence(open);
 
   useEffect(() => {
     if (!open) return;
@@ -56,11 +58,13 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-6"
+      className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-6 ${
+        closing ? "pointer-events-none animate-fade-out" : "animate-fade-in"
+      }`}
       onMouseDown={onClose}
     >
       <div
@@ -70,7 +74,9 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         style={{ width }}
-        className="my-6 max-w-full overflow-hidden rounded-lg border border-border bg-panel shadow-2xl outline-none"
+        className={`my-6 max-w-full overflow-hidden rounded-lg border border-border bg-panel shadow-2xl outline-none ${
+          closing ? "animate-pop-out" : "animate-pop-in"
+        }`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">

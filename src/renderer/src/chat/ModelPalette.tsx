@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo, ProviderInfo, ProviderModuleDescriptor, StoredProvider } from "@shared/types";
 import { Icon } from "@renderer/components/Icon";
+import { usePresence } from "@renderer/hooks/usePresence";
 import { useAppStore } from "@renderer/state/appStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { toast } from "@renderer/state/toastStore";
@@ -134,6 +135,7 @@ function AddLocalEndpointForm({
 export function ModelPalette() {
   const open = useAppStore((state) => state.modelPaletteOpen);
   const setOpen = useAppStore((state) => state.setModelPaletteOpen);
+  const { mounted, closing } = usePresence(open);
   const settings = useSettingsStore((state) => state.settings);
   const patch = useSettingsStore((state) => state.patch);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -221,7 +223,7 @@ export function ModelPalette() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, flat, index, select, setOpen]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   const activeProviderId = settings?.activeProviderId;
   const activeModel = settings?.activeChatModel;
@@ -230,12 +232,16 @@ export function ModelPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24"
+      className={`fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24 ${
+        closing ? "pointer-events-none animate-fade-out" : "animate-fade-in"
+      }`}
       onMouseDown={() => setOpen(false)}
     >
       <div
         ref={containerRef}
-        className="flex max-h-[70vh] w-[560px] flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-2xl"
+        className={`flex max-h-[70vh] w-[560px] flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-2xl ${
+          closing ? "animate-pop-out" : "animate-pop-in"
+        }`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">

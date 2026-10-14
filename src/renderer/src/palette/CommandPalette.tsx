@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePresence } from "@renderer/hooks/usePresence";
 import { openViaDialog } from "@renderer/lib/openFiles";
 import {
   cycleTheme,
@@ -25,6 +26,7 @@ interface Command {
 
 export function CommandPalette() {
   const open = useAppStore((state) => state.paletteOpen);
+  const { mounted, closing } = usePresence(open);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -154,15 +156,19 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, filtered, index]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24"
+      className={`fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-24 ${
+        closing ? "pointer-events-none animate-fade-out" : "animate-fade-in"
+      }`}
       onMouseDown={() => setPaletteOpen(false)}
     >
       <div
-        className="w-[520px] overflow-hidden rounded-lg border border-border bg-panel shadow-2xl"
+        className={`w-[520px] overflow-hidden rounded-lg border border-border bg-panel shadow-2xl ${
+          closing ? "animate-pop-out" : "animate-pop-in"
+        }`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <input

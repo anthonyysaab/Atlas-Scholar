@@ -25,6 +25,8 @@ type FitMode = "free" | "width" | "page";
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 6;
 const PAGE_GAP = 16;
+// While the scale is still moving (panel drag/animation, repeated zoom), stretch the last bitmap and re-render once it settles.
+const RERENDER_DELAY_MS = 150;
 
 function clampScale(value: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -401,6 +403,7 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const renderedKeyRef = useRef("");
+  const renderedRotationRef = useRef<number | null>(null);
   const [active, setActive] = useState(false);
   const [measured, setMeasured] = useState<{ scale: number; rotation: number; w: number; h: number } | null>(null);
 
@@ -436,25 +439,29 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
     if (!active) return;
     const renderKey = `${pageNumber}:${scale}:${rotation}:${window.devicePixelRatio}`;
     if (renderedKeyRef.current === renderKey) return;
+    const onlyScaleChanged = renderedRotationRef.current === rotation;
     let cancelled = false;
     let renderTask: RenderTask | null = null;
     let textLayer: TextLayer | null = null;
-    void (async () => {
+    const run = async (): Promise<void> => {
       const page = await pdf.getPage(pageNumber);
       if (cancelled) return;
       const viewport = page.getViewport({ scale, rotation });
       setMeasured({ scale, rotation, w: viewport.width, h: viewport.height });
-      const canvas = canvasRef.current;
-      if (!canvas) return;
       const outputScale = window.devicePixelRatio || 1;
       const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined;
-      canvas.width = Math.floor(viewport.width * outputScale);
-      canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      renderTask = page.render({ canvas, viewport, transform });
+      // Render offscreen and blit, so the visible canvas never shows a cleared frame.
+      const offscreen = document.createElement("canvas");
+      offscreen.width = Math.floor(viewport.width * outputScale);
+      offscreen.height = Math.floor(viewport.height * outputScale);
+      renderTask = page.render({ canvas: offscreen, viewport, transform });
       await renderTask.promise;
-      if (cancelled) return;
+      const canvas = canvasRef.current;
+      if (cancelled || !canvas) return;
+      canvas.width = offscreen.width;
+      canvas.height = offscreen.height;
+      canvas.getContext("2d")?.drawImage(offscreen, 0, 0);
+      renderedRotationRef.current = rotation;
       const container = textRef.current;
       if (!container) return;
       container.replaceChildren();
@@ -466,25 +473,31 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
       textLayer = layer;
       await layer.render();
       renderedKeyRef.current = renderKey;
-    })().catch((renderError: unknown) => {
-      if (cancelled) return;
-      const name =
-        typeof renderError === "object" && renderError !== null && "name" in renderError
-          ? String((renderError as { name?: unknown }).name)
-          : "";
-      if (name === "RenderingCancelledException") return;
-      console.error("PDF page render failed", pageNumber, renderError);
-    });
+    };
+    const start = (): void => {
+      void run().catch((renderError: unknown) => {
+        if (cancelled) return;
+        const name =
+          typeof renderError === "object" && renderError !== null && "name" in renderError
+            ? String((renderError as { name?: unknown }).name)
+            : "";
+        if (name === "RenderingCancelledException") return;
+        console.error("PDF page render failed", pageNumber, renderError);
+      });
+    };
+    const timer = onlyScaleChanged ? window.setTimeout(start, RERENDER_DELAY_MS) : 0;
+    if (!onlyScaleChanged) start();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       renderTask?.cancel();
       textLayer?.cancel();
     };
   }, [active, pdf, pageNumber, scale, rotation]);
 
   const size =
-    measured && measured.scale === scale && measured.rotation === rotation
-      ? measured
+    measured && measured.rotation === rotation
+      ? { w: (measured.w * scale) / measured.scale, h: (measured.h * scale) / measured.scale }
       : { w: baseSize.w * scale, h: baseSize.h * scale };
 
   return (

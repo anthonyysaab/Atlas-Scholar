@@ -25,6 +25,7 @@ export function App() {
   const error = useSettingsStore((state) => state.error);
   const load = useSettingsStore((state) => state.load);
   const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const onboardingChecked = useRef(false);
 
   useEffect(() => {
@@ -39,7 +40,10 @@ export function App() {
     window.api.onboarding
       .status()
       .then((status) => {
-        if (status.firstRun) setOnboarding(status);
+        if (status.firstRun) {
+          setOnboarding(status);
+          setOnboardingOpen(true);
+        }
       })
       .catch(() => undefined);
   }, [settings]);
@@ -75,7 +79,9 @@ export function App() {
         <ModelPalette />
         <HighlightLayer />
         <SettingsModal />
-        {onboarding ? <OnboardingModal status={onboarding} onClose={() => setOnboarding(null)} /> : null}
+        {onboarding ? (
+          <OnboardingModal status={onboarding} open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
+        ) : null}
       </ErrorBoundary>
       <ToastHost />
     </ThemeProvider>

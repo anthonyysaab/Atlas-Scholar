@@ -25,7 +25,9 @@ export function ToastHost() {
         <div
           key={toast.id}
           role="status"
-          className={`pointer-events-auto flex items-start gap-2 rounded-md border px-3 py-2 text-xs shadow-lg ${STYLE[toast.kind]}`}
+          className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs shadow-lg ${STYLE[toast.kind]} ${
+            toast.leaving ? "pointer-events-none animate-fade-out" : "pointer-events-auto animate-toast-in"
+          }`}
         >
           <Icon name={ICON[toast.kind]} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-weak" />
           <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{toast.message}</span>

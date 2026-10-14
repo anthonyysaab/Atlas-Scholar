@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   Group,
   Panel,
@@ -18,6 +18,8 @@ import { StatusBar } from "./StatusBar";
 
 type UI = Settings["ui"];
 
+const PANEL_ANIMATION_MS = 220;
+
 export function AppShell() {
   const settings = useSettingsStore((state) => state.settings);
   const patchUI = useSettingsStore((state) => state.patchUI);
@@ -30,15 +32,41 @@ export function AppShell() {
   const sidebarSize = settings?.ui.sidebarSize ?? 20;
   const panelSize = settings?.ui.panelSize ?? 30;
 
-  useEffect(() => {
-    if (sidebarOpen) sidebarRef.current?.expand();
-    else sidebarRef.current?.collapse();
-  }, [sidebarOpen, sidebarRef]);
+  const ready = settings !== null;
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const animateTimer = useRef(0);
+  const synced = useRef({ sidebar: false, panel: false });
+
+  // Toggles glide; restoring the saved layout at startup and separator drags do not.
+  const animateIfToggle = useCallback(
+    (which: "sidebar" | "panel") => {
+      if (!ready) return;
+      if (!synced.current[which]) {
+        synced.current[which] = true;
+        return;
+      }
+      const group = groupRef.current;
+      if (!group) return;
+      group.setAttribute("data-animating", "");
+      window.clearTimeout(animateTimer.current);
+      animateTimer.current = window.setTimeout(() => group.removeAttribute("data-animating"), PANEL_ANIMATION_MS);
+    },
+    [ready]
+  );
+
+  useEffect(() => () => window.clearTimeout(animateTimer.current), []);
 
   useEffect(() => {
+    animateIfToggle("sidebar");
+    if (sidebarOpen) sidebarRef.current?.expand();
+    else sidebarRef.current?.collapse();
+  }, [sidebarOpen, sidebarRef, animateIfToggle]);
+
+  useEffect(() => {
+    animateIfToggle("panel");
     if (panelOpen) panelRef.current?.expand();
     else panelRef.current?.collapse();
-  }, [panelOpen, panelRef]);
+  }, [panelOpen, panelRef, animateIfToggle]);
 
   const onLayoutChanged = useCallback(
     (layout: Layout, meta: LayoutChangedMeta) => {
@@ -62,8 +90,8 @@ export function AppShell() {
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen ? (
             <>
-              <div className="absolute inset-0 z-20 bg-black/40" onClick={() => void patchUI({ sidebarOpen: false })} />
-              <div className="absolute inset-y-0 left-0 z-30 w-64 shadow-xl">
+              <div className="absolute inset-0 z-20 animate-fade-in bg-black/40" onClick={() => void patchUI({ sidebarOpen: false })} />
+              <div className="absolute inset-y-0 left-0 z-30 w-64 animate-slide-in-left shadow-xl">
                 <Sidebar />
               </div>
             </>
@@ -76,8 +104,8 @@ export function AppShell() {
           </div>
           {panelOpen ? (
             <>
-              <div className="absolute inset-0 z-20 bg-black/40" onClick={() => void patchUI({ panelOpen: false })} />
-              <div className="absolute inset-y-0 right-0 z-30 w-80 shadow-xl">
+              <div className="absolute inset-0 z-20 animate-fade-in bg-black/40" onClick={() => void patchUI({ panelOpen: false })} />
+              <div className="absolute inset-y-0 right-0 z-30 w-80 animate-slide-in-right shadow-xl">
                 <SidePanel />
               </div>
             </>
@@ -91,7 +119,12 @@ export function AppShell() {
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1">
-        <Group orientation="horizontal" className="h-full w-full" onLayoutChanged={onLayoutChanged}>
+        <Group
+          orientation="horizontal"
+          className="h-full w-full"
+          elementRef={groupRef}
+          onLayoutChanged={onLayoutChanged}
+        >
           <Panel
             id="sidebar"
             collapsible

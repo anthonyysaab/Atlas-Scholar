@@ -73,13 +73,87 @@ body {
   border-radius: 6px;
 }
 
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-med: 180ms;
+}
+
+@layer base {
+  button,
+  a,
+  [role="tab"],
+  input,
+  select,
+  textarea {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: var(--dur-fast);
+    transition-timing-function: var(--ease-out);
+  }
+}
+
+@keyframes ra-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ra-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes ra-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+@keyframes ra-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
+  }
+}
+@keyframes ra-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes ra-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes ra-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 [data-separator] {
   background: var(--border);
-  transition: background 120ms ease;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 [data-separator]:hover,
-[data-separator][data-active="true"] {
+[data-separator="hover"],
+[data-separator="active"] {
   background: var(--accent);
+}
+
+/* Only set during programmatic collapse/expand so separator drags stay 1:1 with the cursor. */
+[data-group][data-animating] > [data-panel] {
+  transition: flex-grow var(--dur-med) var(--ease-out);
 }
 
 .ra-markdown {

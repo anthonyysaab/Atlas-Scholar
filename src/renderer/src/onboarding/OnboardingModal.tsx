@@ -8,7 +8,15 @@ import { toast } from "@renderer/state/toastStore";
 
 const STEPS = ["Welcome", "Chat model", "Embeddings"];
 
-export function OnboardingModal({ status, onClose }: { status: OnboardingStatus; onClose: () => void }) {
+export function OnboardingModal({
+  status,
+  open,
+  onClose
+}: {
+  status: OnboardingStatus;
+  open: boolean;
+  onClose: () => void;
+}) {
   const [step, setStep] = useState(0);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerId, setProviderId] = useState(status.suggestedChatProviderId ?? "");
@@ -41,7 +49,7 @@ export function OnboardingModal({ status, onClose }: { status: OnboardingStatus;
   };
 
   return (
-    <Modal open onClose={() => void finish({})} title="Welcome to Reading Assistant" width="640px">
+    <Modal open={open} onClose={() => void finish({})} title="Welcome to Reading Assistant" width="640px">
       <div className="space-y-4 p-4">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-text-weak">
           {STEPS.map((label, index) => (

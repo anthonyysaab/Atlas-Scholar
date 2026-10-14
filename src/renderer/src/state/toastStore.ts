@@ -6,6 +6,7 @@ export interface Toast {
   id: string;
   kind: ToastKind;
   message: string;
+  leaving?: boolean;
 }
 
 interface ToastState {
@@ -15,6 +16,7 @@ interface ToastState {
 }
 
 const LIFETIME_MS: Record<ToastKind, number> = { info: 3500, success: 3500, error: 6500 };
+export const TOAST_EXIT_MS = 160;
 
 export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
@@ -26,7 +28,15 @@ export const useToastStore = create<ToastState>((set, get) => ({
     return id;
   },
 
-  dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) }))
+  dismiss: (id) => {
+    const target = get().toasts.find((toast) => toast.id === id);
+    if (!target || target.leaving) return;
+    set((state) => ({ toasts: state.toasts.map((toast) => (toast.id === id ? { ...toast, leaving: true } : toast)) }));
+    setTimeout(
+      () => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
+      TOAST_EXIT_MS
+    );
+  }
 }));
 
 export const toast = {

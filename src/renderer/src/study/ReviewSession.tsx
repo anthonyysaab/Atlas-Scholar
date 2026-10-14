@@ -106,7 +106,7 @@ export function ReviewSession({ initial, onExit }: ReviewSessionProps) {
 
       {revealed ? (
         <>
-          <div className="rounded border border-border bg-panel p-3">
+          <div className="animate-pop-in rounded border border-border bg-panel p-3">
             <Markdown content={card.answer} className="text-sm text-text" />
             {card.source ? (
               <button

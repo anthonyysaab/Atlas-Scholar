@@ -18,6 +18,18 @@ export default {
         "anno-green": "var(--anno-green)",
         "anno-blue": "var(--anno-blue)",
         "anno-pink": "var(--anno-pink)"
+      },
+      transitionTimingFunction: {
+        "out-soft": "var(--ease-out)"
+      },
+      animation: {
+        "fade-in": "ra-fade-in var(--dur-med) var(--ease-out) both",
+        "fade-out": "ra-fade-out var(--dur-fast) var(--ease-out) both",
+        "pop-in": "ra-pop-in var(--dur-med) var(--ease-out) both",
+        "pop-out": "ra-pop-out var(--dur-fast) var(--ease-out) both",
+        "toast-in": "ra-toast-in var(--dur-med) var(--ease-out) both",
+        "slide-in-left": "ra-slide-in-left var(--dur-med) var(--ease-out) both",
+        "slide-in-right": "ra-slide-in-right var(--dur-med) var(--ease-out) both"
       }
     }
   },

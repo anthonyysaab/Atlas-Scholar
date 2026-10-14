@@ -72,7 +72,7 @@ is the whole app; the numbered folders are plans, the app lives at the root):
 - Build: `npm run build` (electron-vite build → `out/{main,preload,renderer}`)
 - Typecheck: `npm run typecheck` (node + web projects, `tsc --noEmit`)
 - Lint: `npm run lint` (ESLint flat config)
-- Test: `npm test` (vitest run, 134 tests; `npm run test:watch` for watch)
+- Test: `npm test` (vitest run, 159 tests; `npm run test:watch` for watch)
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)
 - Package: `npm run package` (electron-vite build + electron-builder NSIS x64 → `release/`)
   - Installer: `release/Reading Assistant-<version>-setup.exe`; unpacked app: `release/win-unpacked/`

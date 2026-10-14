@@ -81,7 +81,7 @@ export function NotePopover({ annotation, position, onClose }: NotePopoverProps)
     <div
       ref={ref}
       style={{ position: "fixed", left, top, zIndex: 70, width: 288 }}
-      className="rounded-md border border-border bg-panel p-3 text-xs text-text shadow-lg"
+      className="animate-pop-in rounded-md border border-border bg-panel p-3 text-xs text-text shadow-lg"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="font-medium">
