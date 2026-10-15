@@ -24,14 +24,22 @@ describe("buildPromptContext", () => {
     expect(prompt).not.toContain("do not use outside knowledge");
   });
 
-  it("adds tutoring rules only in study mode, on top of either scope", () => {
+  it("replaces the answer format with tutoring rules in study mode, keeping the scope's grounding", () => {
     expect(buildPromptContext(excerpts)).not.toContain("Study mode is on");
     const strict = buildPromptContext(excerpts, { study: true });
     expect(strict).toContain("Study mode is on");
-    expect(strict).toContain("do not use outside knowledge");
+    expect(strict).toContain("Do not use outside knowledge");
+    expect(strict).not.toContain("Answer the user's question using ONLY");
     const extended = buildPromptContext(excerpts, { scope: "extended", study: true });
     expect(extended).toContain("Study mode is on");
-    expect(extended).toContain('"Beyond the document"');
+    expect(extended).toContain("general knowledge");
+    expect(extended).not.toContain('"From the document"');
+  });
+
+  it("repeats the study reminder after the excerpts", () => {
+    const prompt = buildPromptContext(excerpts, { study: true });
+    expect(prompt.lastIndexOf("Reminder, study mode")).toBeGreaterThan(prompt.indexOf("[2] (Syntaxe)"));
+    expect(buildPromptContext(excerpts)).not.toContain("Reminder, study mode");
   });
 
   it("still returns a system prompt when nothing was retrieved", () => {

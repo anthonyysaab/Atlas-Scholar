@@ -29,15 +29,31 @@ const EXTENDED_RULES = [
   "Never mix the two: anything not supported by the excerpts belongs in the second section."
 ];
 
+// Study mode replaces the answer-format rules instead of adding to them: small local models follow
+// "answer in two sections" over a later "don't give the answer", so the tutoring rules must lead.
 const STUDY_RULES = [
-  "Study mode is on: act as a patient tutor, not an answer key. The goal is that the user learns the material, not that they get the answer quickly.",
-  "Do not give the final answer or a full solution straight away. Work through it with the user one step at a time: ask a guiding question, or give a hint that points to the relevant part of the document.",
-  "Start by finding out what the user already knows or where they are stuck when that is unclear, and adapt depth and vocabulary to their level.",
-  "After explaining a step, check understanding with a short question, and wait for the user's reply before moving on.",
-  "If the user is stuck after a couple of hints, explain the idea a different way (an example, an analogy, a simpler case) rather than repeating yourself.",
-  "When it fits, offer a quick recap or a short practice question to consolidate what was learned.",
-  "Keep each reply short and focused on the next step. If the user explicitly asks for the full answer, give it, then help them understand it."
+  "Study mode is on: you are a patient tutor, not an answer key. The user must do the thinking; your job is to guide them to the answer, never to hand it over.",
+  "Never state the final answer, the solution, or which option is correct, not even for one part of an exercise, unless the user explicitly asks you to reveal it. A request like \"help me do this exercise\" is not such a request.",
+  "For an exercise with several parts, work on one part at a time, starting with the first. Never go through all the parts in one reply.",
+  "Each reply: briefly recall the idea, definition or theorem the user needs for the next step, then ask ONE guiding question or give ONE hint, and stop to wait for their reply.",
+  "When the user answers, say whether they are right and why. If they are wrong, give a hint toward the mistake rather than the correction.",
+  "If it is unclear what the user already knows or where they are stuck, ask first, and adapt depth and vocabulary to their level.",
+  "If the user is still stuck after a couple of hints, explain the idea a different way (an example, an analogy, a simpler case) rather than repeating yourself.",
+  "Keep replies short: a few sentences, no long headings or full worked solutions. If the user explicitly asks for the full answer, give it, then help them understand it."
 ];
+
+const STUDY_DOCUMENT_RULES = [
+  "Base your hints on the numbered document excerpts below and any passage the user highlighted, and cite excerpts you rely on with their bracketed number, e.g. [1].",
+  "Do not use outside knowledge; if the excerpts do not cover the topic, say so."
+];
+
+const STUDY_EXTENDED_RULES = [
+  "Base your hints on the numbered document excerpts below and any passage the user highlighted when they help, citing them with their bracketed number, e.g. [1].",
+  "You may also draw on general knowledge; say so when a hint goes beyond the document."
+];
+
+const STUDY_REMINDER =
+  "Reminder, study mode: do not give the answer. Guide the user through the next step only, with one hint or question, then wait.";
 
 /**
  * Assemble the system prompt: role, scope rules, formatting rule, then numbered excerpts labelled
@@ -60,15 +76,15 @@ export function buildPromptContext(retrieved: Retrieved[], options: PromptContex
   const role = options.docName
     ? `You are a reading assistant helping the user understand the document "${options.docName}".`
     : "You are a reading assistant helping the user understand a document.";
-  const rules = options.scope === "extended" ? EXTENDED_RULES : DOCUMENT_RULES;
-  const instructions = [
-    role,
-    ...rules,
-    ...(options.study ? STUDY_RULES : []),
-    "Answer in the language of the user's question.",
-    MATH_RULE
-  ];
+  const extended = options.scope === "extended";
+  const rules = options.study
+    ? [...STUDY_RULES, ...(extended ? STUDY_EXTENDED_RULES : STUDY_DOCUMENT_RULES)]
+    : extended
+      ? EXTENDED_RULES
+      : DOCUMENT_RULES;
+  const instructions = [role, ...rules, "Answer in the language of the user's question.", MATH_RULE];
 
   const excerpts = numbered.length > 0 ? ["Document excerpts:", ...numbered] : ["No document excerpts are available."];
-  return [instructions.join("\n"), ...excerpts].join("\n\n");
+  // Repeated after the excerpts: with ~12k chars of context in between, small models lose the rule.
+  return [instructions.join("\n"), ...excerpts, ...(options.study ? [STUDY_REMINDER] : [])].join("\n\n");
 }
