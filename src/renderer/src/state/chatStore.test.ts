@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatRequest, RagQueryInput, RagQueryResult, Settings } from "@shared/types";
+import type { ChatRequest, LibrarySearchInput, LinkInput, RagQueryInput, RagQueryResult, Settings } from "@shared/types";
 import { splitThink } from "@renderer/chat/think";
 import { toChatMessage, useChatStore } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
@@ -89,6 +89,57 @@ describe("chatStore.toggleStudy", () => {
     useChatStore.getState().setActiveThread("doc", first);
     useChatStore.getState().toggleStudy("doc");
     expect(useChatStore.getState().threads[first]?.study).toBeUndefined();
+  });
+});
+
+describe("chatStore after a finished turn", () => {
+  it("commits the user's [[links]] to the highlighted passage and stores related passages", async () => {
+    const linked: LinkInput[][] = [];
+    const searches: LibrarySearchInput[] = [];
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["links"] = {
+      link: async (inputs: LinkInput[]) => {
+        linked.push(inputs);
+        return [];
+      },
+      graph: async () => ({ revision: 1, concepts: [], passages: [], edges: [] })
+    };
+    (api["rag"] as Record<string, unknown>)["search"] = async (input: LibrarySearchInput) => {
+      searches.push(input);
+      return {
+        searchedDocs: 1,
+        skipped: [],
+        retrieved: [{ chunkId: "sha256:n:3", score: 0.9, page: 12, text: "cardinal infini", docPath: "C:/notes.pdf", docName: "notes" }]
+      };
+    };
+    useSettingsStore.setState({
+      settings: {
+        activeProviderId: "lmstudio",
+        activeChatModel: "qwen3-8b",
+        chat: { scope: "document" },
+        graph: { relatedSuggestions: true, relatedMinScore: 0.5, commitModelWikiLinks: false }
+      } as Settings
+    });
+
+    await useChatStore.getState().send("doc", "C:/exam.pdf", "c'est quoi [[cardinal infini]]", { text: "Si κ est un cardinal infini", page: 1 });
+    const streamId = Object.keys(useChatStore.getState().streams)[0] ?? "";
+    useChatStore.getState().handleToken({ streamId, delta: "Un [[cardinal]] est infini." });
+    useChatStore.getState().handleDone({ streamId });
+    await vi.waitFor(() => expect(searches).toHaveLength(1));
+
+    expect(linked[0]).toEqual([
+      expect.objectContaining({
+        concept: { name: "cardinal infini" },
+        source: "wikilink",
+        passage: { docPath: "C:/exam.pdf", quote: "Si κ est un cardinal infini", page: 1 }
+      })
+    ]);
+    expect(searches[0]).toMatchObject({ excludeDocPaths: ["C:/exam.pdf"], minScore: 0.5 });
+    await vi.waitFor(() => {
+      const state = useChatStore.getState();
+      const thread = state.threads[state.activeThreadByDoc["doc"] ?? ""];
+      expect(thread?.messages[1]?.related?.[0]).toMatchObject({ docName: "notes", page: 12 });
+    });
   });
 });
 

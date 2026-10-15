@@ -3,17 +3,19 @@ import { Modal } from "@renderer/components/Modal";
 import { closeSettings } from "@renderer/lib/commands";
 import { useAppStore } from "@renderer/state/appStore";
 import { AppearanceSection } from "./AppearanceSection";
+import { GraphSection } from "./GraphSection";
 import { HealthSection } from "./HealthSection";
 import { ModelsSection } from "./ModelsSection";
 import { ProvidersSection } from "./ProvidersSection";
 import { RagSection } from "./RagSection";
 
-type SettingsTab = "providers" | "models" | "rag" | "appearance" | "health";
+type SettingsTab = "providers" | "models" | "rag" | "graph" | "appearance" | "health";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "providers", label: "Providers" },
   { id: "models", label: "Models" },
   { id: "rag", label: "RAG" },
+  { id: "graph", label: "Links & graph" },
   { id: "appearance", label: "Appearance" },
   { id: "health", label: "Health" }
 ];
@@ -47,6 +49,7 @@ export function SettingsModal() {
           {tab === "providers" ? <ProvidersSection /> : null}
           {tab === "models" ? <ModelsSection /> : null}
           {tab === "rag" ? <RagSection /> : null}
+          {tab === "graph" ? <GraphSection /> : null}
           {tab === "appearance" ? <AppearanceSection /> : null}
           {tab === "health" ? <HealthSection /> : null}
         </div>

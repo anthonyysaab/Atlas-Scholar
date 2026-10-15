@@ -16,9 +16,10 @@ export function useBrowserBounds(): { placeholderRef: RefObject<HTMLDivElement |
   const settingsOpen = useAppStore((store) => store.settingsOpen);
   const paletteOpen = useAppStore((store) => store.paletteOpen);
   const modelPaletteOpen = useAppStore((store) => store.modelPaletteOpen);
+  const linkPickerOpen = useAppStore((store) => store.linkPicker !== null);
 
   const shouldShow =
-    panelTab === "search" && panelOpen && !settingsOpen && !paletteOpen && !modelPaletteOpen;
+    panelTab === "search" && panelOpen && !settingsOpen && !paletteOpen && !modelPaletteOpen && !linkPickerOpen;
 
   useEffect(() => {
     let active = true;

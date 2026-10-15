@@ -8,9 +8,13 @@ export function DocTabs() {
   const setActiveDoc = useAppStore((state) => state.setActiveDoc);
   const closeDoc = useAppStore((state) => state.closeDoc);
   const moveDoc = useAppStore((state) => state.moveDoc);
+  const graphTabOpen = useAppStore((state) => state.graphTabOpen);
+  const centerView = useAppStore((state) => state.centerView);
+  const openGraph = useAppStore((state) => state.openGraph);
+  const closeGraph = useAppStore((state) => state.closeGraph);
   const [dragId, setDragId] = useState<string | null>(null);
 
-  if (docs.length === 0) return null;
+  if (docs.length === 0 && !graphTabOpen) return null;
 
   return (
     <div
@@ -43,7 +47,7 @@ export function DocTabs() {
             setDragId(null);
           }}
           className={`group flex max-w-[200px] shrink-0 items-center gap-1 rounded px-2 py-1 ${
-            doc.id === activeDocId ? "bg-panel text-text" : "text-text-weak hover:bg-panel"
+            doc.id === activeDocId && centerView === "doc" ? "bg-panel text-text" : "text-text-weak hover:bg-panel"
           } ${dragId === doc.id ? "opacity-60" : ""}`}
         >
           <button
@@ -68,6 +72,26 @@ export function DocTabs() {
           </button>
         </div>
       ))}
+      {graphTabOpen ? (
+        <div
+          className={`group flex shrink-0 items-center gap-1 rounded px-2 py-1 ${
+            centerView === "graph" ? "bg-panel text-text" : "text-text-weak hover:bg-panel"
+          }`}
+        >
+          <button type="button" onClick={() => openGraph()} className="flex items-center gap-2" title="Concept graph (Ctrl+G)">
+            <Icon name="graph" className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <span className="text-xs">Graph</span>
+          </button>
+          <button
+            type="button"
+            title="Close"
+            onClick={closeGraph}
+            className="rounded p-0.5 opacity-0 hover:text-text group-hover:opacity-100"
+          >
+            <Icon name="close" className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

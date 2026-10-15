@@ -1,4 +1,6 @@
 import type { Citation } from "@shared/types";
+import { samePath } from "@shared/docLabel";
+import { openPassage } from "@renderer/lib/openPassage";
 import { revealSelection } from "@renderer/viewer/selection";
 
 export const CITATION_JUMP_EVENT = "ra:jump-citation";
@@ -19,6 +21,11 @@ export function requestCitationJump(detail: CitationJumpDetail): void {
  * `SelectionTarget` whose `scrollTo(page)` navigates; text/fallback docs simply no-op.
  */
 export function jumpToCitation(docId: string, docPath: string, citation: Citation): boolean {
+  if (citation.docPath && !samePath(citation.docPath, docPath)) {
+    // Library-scope citations can point into another document: open it at the cited page.
+    void openPassage({ docPath: citation.docPath, ...(citation.page !== undefined ? { page: citation.page } : {}) });
+    return true;
+  }
   if (citation.page === undefined) return false;
   return revealSelection({ docId, docPath, kind: "pdf", page: citation.page, rects: [], text: "" });
 }

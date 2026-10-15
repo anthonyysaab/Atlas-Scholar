@@ -49,7 +49,9 @@ function parseSession(value: unknown): WorkspaceSession | null {
   return {
     docs,
     activeDocPath: typeof activeRaw === "string" ? activeRaw : null,
-    positions
+    positions,
+    ...(record["graphOpen"] === true ? { graphOpen: true } : {}),
+    ...(record["graphActive"] === true ? { graphActive: true } : {})
   };
 }
 

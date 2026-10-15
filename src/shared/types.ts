@@ -75,6 +75,9 @@ export interface Citation {
   page?: number;
   section?: string;
   snippet: string;
+  /** Set when the excerpt came from another document (library scope). */
+  docPath?: string;
+  docName?: string;
 }
 
 export interface Retrieved {
@@ -83,16 +86,39 @@ export interface Retrieved {
   page?: number;
   section?: string;
   text: string;
+  docPath?: string;
+  docName?: string;
+}
+
+/** Semantic search across every indexed document built with the active embedding model. */
+export interface LibrarySearchInput {
+  text: string;
+  excludeDocPaths?: string[];
+  /** Restrict to these documents; absent means all indexed documents. */
+  docPaths?: string[];
+  topK?: number;
+  minScore?: number;
+  /** At most this many results per document. */
+  perDoc?: number;
+}
+
+export interface LibrarySearchResult {
+  retrieved: Retrieved[];
+  searchedDocs: number;
+  /** Indexes built with a different embedding model; they cannot be searched until re-indexed. */
+  skipped: { docPath: string; embedModel: string }[];
 }
 
 export interface RagApi {
-  index(docPath: string, opts?: { force?: boolean }): Promise<IndexStatus>;
+  index(docPath: string, opts?: { force?: boolean; extractConcepts?: boolean }): Promise<IndexStatus>;
   status(docPath: string): Promise<IndexStatus>;
   remove(docPath: string): Promise<void>;
   query(input: RagQueryInput): Promise<RagQueryResult>;
+  search(input: LibrarySearchInput): Promise<LibrarySearchResult>;
 }
 
-export type ChatScope = "document" | "extended";
+/** `library` retrieves from every indexed document, not just the open one. */
+export type ChatScope = "document" | "extended" | "library";
 
 export interface RagQueryInput {
   docPath: string;
@@ -116,9 +142,17 @@ export interface RagQueryResult {
   notice?: string;
 }
 
+export interface NormalizedRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface SelectionQuote {
   text: string;
   page?: number;
+  rects?: NormalizedRect[];
 }
 
 export interface ChatMessage {
@@ -191,7 +225,23 @@ export interface StoredProvider {
   catalogId?: string;
 }
 
-export type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards";
+export type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards" | "links";
+
+export interface GraphSettings {
+  /** Ask the model for key concepts when the user indexes a document; results wait for review. */
+  extractOnIndex: boolean;
+  /** Provider/model used for extraction; absent means the active chat provider/model. */
+  extractProviderId?: string;
+  extractModel?: string;
+  maxConceptsPerDoc: number;
+  /** Show "Related in your other PDFs" under chat answers. */
+  relatedSuggestions: boolean;
+  relatedMinScore: number;
+  /** Ask the model to mark key concepts as [[wiki-links]] (library scope or study mode). */
+  wikiLinksInChat: boolean;
+  /** Commit model-written [[links]] straight into the graph instead of showing them as ghost chips. */
+  commitModelWikiLinks: boolean;
+}
 
 export interface Settings {
   activeProviderId: string;
@@ -200,6 +250,7 @@ export interface Settings {
   activeEmbeddingModel: string;
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number };
   chat: { scope: ChatScope };
+  graph: GraphSettings;
   ui: {
     theme: ThemePref;
     sidebarOpen: boolean;
@@ -227,6 +278,8 @@ export interface EventsApi {
   onChatDone(cb: (e: { streamId: string; usage?: unknown }) => void): () => void;
   onChatError(cb: (e: { streamId: string; error: string }) => void): () => void;
   onIndexProgress(cb: (e: { docPath: string; done: number; total: number; phase: string }) => void): () => void;
+  onLinksChanged(cb: (e: LinksChangedEvent) => void): () => void;
+  onExtractProgress(cb: (e: ExtractProgress) => void): () => void;
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void;
 }
 
@@ -351,6 +404,9 @@ export interface WorkspaceSession {
   docs: string[];
   activeDocPath: string | null;
   positions: Record<string, SessionPosition>;
+  /** The concept graph tab was open, and in front when `graphActive`. */
+  graphOpen?: boolean;
+  graphActive?: boolean;
 }
 
 /** Per-document bookmarks and the last-session snapshot. Added by the workspace feature. */
@@ -459,6 +515,7 @@ export interface Api {
   browser: BrowserApi;
   workspace: WorkspaceApi;
   flashcards: FlashcardsApi;
+  links: LinksApi;
 }
 
 export interface OpenDoc {
@@ -480,6 +537,155 @@ export interface Thread {
     content: string;
     quote?: SelectionQuote;
     citations?: Citation[];
+    /** Passages from other documents that match this answer. */
+    related?: RelatedPassage[];
     createdAt: string;
   }[];
+}
+
+export interface RelatedPassage {
+  chunkId: string;
+  docPath: string;
+  docName: string;
+  page?: number;
+  snippet: string;
+  score: number;
+}
+
+/* Concept graph (06-concept-graph) */
+
+/** concept→passage is `mentions`; passage↔passage is `related`. */
+export type EdgeKind = "mentions" | "related";
+export type LinkSource = "manual" | "chat" | "wikilink" | "extracted";
+
+export interface Concept {
+  id: string;
+  name: string;
+  aliases: string[];
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PassageDraft {
+  docPath: string;
+  /** 1-based PDF page; absent for text documents. */
+  page?: number;
+  quote: string;
+  rects?: NormalizedRect[];
+  chunkId?: string;
+}
+
+export interface Passage extends PassageDraft {
+  id: string;
+  contentHash?: string;
+  createdAt: string;
+  /** The file's content no longer matches `contentHash`; the page may have shifted. */
+  stale?: boolean;
+}
+
+export interface LinkEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: EdgeKind;
+  source: LinkSource;
+  createdAt: string;
+  origin?: { threadId?: string; messageId?: string };
+}
+
+export interface LinksGraph {
+  revision: number;
+  concepts: Concept[];
+  passages: Passage[];
+  edges: LinkEdge[];
+}
+
+export type ConceptTarget = { conceptId: string } | { name: string; aliases?: string[] };
+
+export interface LinkInput {
+  passage?: PassageDraft;
+  concept?: ConceptTarget;
+  /** With `passage`: a passage↔passage `related` edge. */
+  relatedPassage?: PassageDraft;
+  source: LinkSource;
+  origin?: { threadId?: string; messageId?: string };
+}
+
+export interface LinkResult {
+  concept?: Concept;
+  passages: Passage[];
+  edges: LinkEdge[];
+}
+
+export interface ProposalPassage {
+  page?: number;
+  quote: string;
+  chunkId: string;
+}
+
+/** An extracted concept waiting for review. Nothing reaches the graph until it is accepted. */
+export interface ConceptProposal {
+  id: string;
+  docPath: string;
+  contentHash: string;
+  name: string;
+  aliases: string[];
+  passages: ProposalPassage[];
+  /** Same folded name/alias as an existing concept: accepting attaches the passages to it. */
+  matchConceptId?: string;
+  /** A similar existing concept the user may want to merge into. */
+  suggestedConceptId?: string;
+  model: string;
+  createdAt: string;
+}
+
+export interface ExtractProgress {
+  docPath: string;
+  contentHash: string;
+  done: number;
+  total: number;
+  state: "running" | "done" | "cancelled" | "error";
+  proposals: number;
+  error?: string;
+}
+
+export interface LinksChangedEvent {
+  revision: number;
+  reason: "graph" | "proposals";
+}
+
+export interface ProposalPatch {
+  name?: string;
+  aliases?: string[];
+  passages?: ProposalPassage[];
+  /** `null` detaches it from the existing concept so accepting creates a new one. */
+  matchConceptId?: string | null;
+}
+
+/** Cross-document concept links, stored app-wide in `userData/links.json`. */
+export interface LinksApi {
+  graph(): Promise<LinksGraph>;
+  concepts: {
+    create(input: { name: string; aliases?: string[]; note?: string }): Promise<Concept>;
+    update(id: string, patch: { name?: string; aliases?: string[]; note?: string }): Promise<Concept>;
+    merge(intoId: string, fromIds: string[]): Promise<Concept>;
+    remove(id: string): Promise<void>;
+  };
+  /** Idempotent: re-linking the same passage and concept returns the existing records. */
+  link(inputs: LinkInput[]): Promise<LinkResult[]>;
+  unlink(edgeId: string): Promise<void>;
+  removePassage(id: string): Promise<void>;
+  /** Re-point passages from a moved or renamed file. */
+  relocate(fromPath: string, toPath: string): Promise<{ moved: number; hashMatches: boolean }>;
+  proposals: {
+    list(docPath?: string): Promise<ConceptProposal[]>;
+    update(id: string, patch: ProposalPatch): Promise<ConceptProposal>;
+    accept(ids: string[]): Promise<LinkResult[]>;
+    reject(ids: string[]): Promise<void>;
+    merge(ids: string[], name: string): Promise<ConceptProposal>;
+  };
+  extract(docPath: string): Promise<ExtractProgress>;
+  cancelExtract(docPath: string): Promise<void>;
+  extractStatus(docPath: string): Promise<ExtractProgress | null>;
 }

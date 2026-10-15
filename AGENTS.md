@@ -28,6 +28,7 @@ exactly what to build, in what order, and how to verify it. Shared contracts liv
 | `03-annotations/` | M3 — PDF highlights/notes, sidecar storage, annotations panel |
 | `04-rag-pipeline/` | M4 — extraction, chunking, embeddings, vector index, retrieval, citations |
 | `05-polish-packaging/` | M5 — library, threads, health checks, settings UI, installer |
+| `06-concept-graph/` | Cross-PDF concept links: Library chat scope, links store, `[[wiki-links]]`, review-gated extraction, graph view |
 
 ## Working order (dependency graph)
 
@@ -35,6 +36,8 @@ exactly what to build, in what order, and how to verify it. Shared contracts liv
 00-foundation ──┬─> 01-viewers ──┬─> 03-annotations ──> 05-polish-packaging
                 ├─> 02-providers-chat ──┘
                 └─> 04-rag-pipeline ────┘ (also needs 01 for document text)
+
+02-providers-chat + 03-annotations + 04-rag-pipeline ──> 06-concept-graph
 ```
 
 Do not start a workstream before its dependencies are done, unless you are only scaffolding
@@ -72,7 +75,7 @@ is the whole app; the numbered folders are plans, the app lives at the root):
 - Build: `npm run build` (electron-vite build → `out/{main,preload,renderer}`)
 - Typecheck: `npm run typecheck` (node + web projects, `tsc --noEmit`)
 - Lint: `npm run lint` (ESLint flat config)
-- Test: `npm test` (vitest run, 159 tests; `npm run test:watch` for watch)
+- Test: `npm test` (vitest run, 250 tests; `npm run test:watch` for watch)
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)
 - Package: `npm run package` (electron-vite build + electron-builder NSIS x64 → `release/`)
   - Installer: `release/Reading Assistant-<version>-setup.exe`; unpacked app: `release/win-unpacked/`

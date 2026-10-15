@@ -25,14 +25,14 @@ export function normalizeVector(vector: number[]): number[] {
   return vector.map((value) => value * inverse);
 }
 
-export function dot(a: number[], b: number[]): number {
+export function dot(a: ArrayLike<number>, b: ArrayLike<number>): number {
   const length = Math.min(a.length, b.length);
   let sum = 0;
   for (let i = 0; i < length; i += 1) sum += (a[i] ?? 0) * (b[i] ?? 0);
   return sum;
 }
 
-export function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
   const normA = Math.sqrt(dot(a, a));
   const normB = Math.sqrt(dot(b, b));
   if (normA === 0 || normB === 0) return 0;
@@ -66,6 +66,11 @@ export interface ScoredChunk {
   score: number;
 }
 
+interface Scored {
+  chunk: { vector: ArrayLike<number> };
+  score: number;
+}
+
 function rankAll(index: VectorIndex, queryVector: number[], selection?: string): ScoredChunk[] {
   return index.chunks
     .map((chunk) => {
@@ -77,10 +82,10 @@ function rankAll(index: VectorIndex, queryVector: number[], selection?: string):
 }
 
 /** Maximal Marginal Relevance selection: balance relevance against redundancy. */
-export function mmrSelect(candidates: ScoredChunk[], lambda: number, k: number): ScoredChunk[] {
+export function mmrSelect<T extends Scored>(candidates: T[], lambda: number, k: number): T[] {
   const clamped = Math.max(0, Math.min(1, lambda));
   const pool = candidates.slice();
-  const selected: ScoredChunk[] = [];
+  const selected: T[] = [];
   while (selected.length < k && pool.length > 0) {
     let bestIndex = 0;
     let bestValue = -Infinity;

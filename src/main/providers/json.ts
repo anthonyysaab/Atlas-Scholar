@@ -1,3 +1,5 @@
+import type { NormalizedRect } from "@shared/types";
+
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -26,4 +28,15 @@ export function parseJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+export function parseRects(value: unknown): NormalizedRect[] {
+  return asArray(value).flatMap((entry) => {
+    const record = asRecord(entry);
+    const x = asNumber(record?.["x"]);
+    const y = asNumber(record?.["y"]);
+    const w = asNumber(record?.["w"]);
+    const h = asNumber(record?.["h"]);
+    return x === undefined || y === undefined || w === undefined || h === undefined ? [] : [{ x, y, w, h }];
+  });
 }

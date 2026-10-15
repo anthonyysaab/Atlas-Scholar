@@ -34,6 +34,9 @@ interface Api {
   onboarding: OnboardingApi  // added by 05-polish-packaging
   update: UpdateApi          // check GitHub Releases for a newer build
   browser: BrowserApi        // in-app browser embedded in the Search tab (D15)
+  workspace: WorkspaceApi    // bookmarks + session snapshot (userData/workspace.json)
+  flashcards: FlashcardsApi  // §1.11
+  links: LinksApi            // §1.12 cross-document concept links (06-concept-graph)
 }
 ```
 
@@ -145,6 +148,8 @@ interface Citation {
   page?: number
   section?: string
   snippet: string
+  docPath?: string            // 06: set for library-scope excerpts (any document, the open one included)
+  docName?: string            // 06: short collision-safe label, e.g. "M1_ML1_course"
 }
 
 interface Retrieved {
@@ -153,16 +158,36 @@ interface Retrieved {
   page?: number
   section?: string
   text: string
+  docPath?: string            // 06: library scope / rag.search
+  docName?: string
 }
 
 interface RagApi {
-  index(docPath: string, opts?: { force?: boolean }): Promise<IndexStatus>
+  // extractConcepts overrides settings.graph.extractOnIndex for this user-triggered run (06)
+  index(docPath: string, opts?: { force?: boolean; extractConcepts?: boolean }): Promise<IndexStatus>
   status(docPath: string): Promise<IndexStatus>
   remove(docPath: string): Promise<void>
   query(input: RagQueryInput): Promise<RagQueryResult>
+  search(input: LibrarySearchInput): Promise<LibrarySearchResult>   // 06: semantic search across indexed documents
 }
 
-type ChatScope = "document" | "extended"
+// 06: across every index built with the active embedding model (newest index per document).
+interface LibrarySearchInput {
+  text: string
+  excludeDocPaths?: string[]
+  docPaths?: string[]          // restrict; absent = all
+  topK?: number                // default settings.rag.topK, max 50
+  minScore?: number            // cosine floor
+  perDoc?: number              // cap per document
+}
+interface LibrarySearchResult {
+  retrieved: Retrieved[]       // docPath/docName always set
+  searchedDocs: number
+  skipped: { docPath: string; embedModel: string }[]   // indexes built with another embedding model
+}
+
+// "library" (06): retrieve from every indexed document; excerpts are labelled "(docName, p.N)".
+type ChatScope = "document" | "extended" | "library"
 
 interface RagQueryInput {
   docPath: string
@@ -185,7 +210,8 @@ interface RagQueryResult {
   notice?: string
 }
 
-interface SelectionQuote { text: string; page?: number }
+interface NormalizedRect { x: number; y: number; w: number; h: number }
+interface SelectionQuote { text: string; page?: number; rects?: NormalizedRect[] }   // rects: 06, PDF selection
 ```
 
 Streaming progress for indexing is delivered via `events` (see §1.7).
@@ -257,7 +283,7 @@ interface ProvidersApi {
 ### 1.7 `SettingsApi` and events
 
 ```ts
-type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards"
+type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards" | "links"
 
 interface Settings {
   activeProviderId: string
@@ -265,7 +291,8 @@ interface Settings {
   activeEmbeddingProviderId: string
   activeEmbeddingModel: string
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number }
-  chat: { scope: ChatScope }  // "document": excerpts only; "extended": cited document section, then optional outside knowledge
+  chat: { scope: ChatScope }  // "document": excerpts only; "extended": cited document section, then optional outside knowledge; "library": all indexed documents
+  graph: GraphSettings        // 06-concept-graph
   ui: {
     theme: ThemePref            // ThemeId ("dark" | "mid-dark" | "mid-light" | "light" | "deep" | "high-contrast" | "sepia") | "system"; see src/shared/themes.ts
     sidebarOpen: boolean
@@ -279,6 +306,18 @@ interface Settings {
   providers?: StoredProvider[]     // M5: user provider overrides + custom providers
   hiddenProviders?: string[]       // M5: built-in provider ids the user removed
   onboardingComplete?: boolean     // M5: gates the first-run setup modal
+}
+
+// 06: concept links and extraction.
+interface GraphSettings {
+  extractOnIndex: boolean        // default false; extraction proposals always wait for review
+  extractProviderId?: string     // default: activeProviderId
+  extractModel?: string          // default: activeChatModel
+  maxConceptsPerDoc: number      // default 40
+  relatedSuggestions: boolean    // default true: "Related in your other PDFs" under answers
+  relatedMinScore: number        // default 0.6 (cosine)
+  wikiLinksInChat: boolean       // default true: prompt asks for [[concepts]] in library scope / study mode
+  commitModelWikiLinks: boolean  // default false: model-written [[links]] are ghost chips until clicked
 }
 
 // M5: a user-managed provider persisted in settings. Matching a built-in `id` overrides it
@@ -472,6 +511,72 @@ interface FlashcardsApi {
 `generate` asks the model for strict JSON (`{"cards": [{question, answer, passage}]}`), tolerates
 `<think>` blocks and code fences, drops duplicates, and caps at `maxCards` (default 20, max 50).
 
+### 1.12 `LinksApi` (06-concept-graph)
+
+Cross-document concept links. App-wide store `userData/links.json` (§4.1), versioned, temp-write +
+rename, writes serialized; every write bumps `revision` and emits `links:changed`. Keyed by
+`docPath` (compared case-insensitively on Windows) plus `contentHash` to flag stale passages —
+never by `OpenDoc.id`. Documents are never modified.
+
+```ts
+type EdgeKind = "mentions" | "related"            // concept→passage | passage↔passage
+type LinkSource = "manual" | "chat" | "wikilink" | "extracted"
+interface Concept { id: string; name: string; aliases: string[]; note?: string; createdAt: string; updatedAt: string }
+interface PassageDraft { docPath: string; page?: number; quote: string; rects?: NormalizedRect[]; chunkId?: string }
+interface Passage extends PassageDraft { id: string; contentHash?: string; createdAt: string; stale?: boolean }
+interface LinkEdge { id: string; from: string; to: string; kind: EdgeKind; source: LinkSource; createdAt: string;
+                     origin?: { threadId?: string; messageId?: string } }
+interface LinksGraph { revision: number; concepts: Concept[]; passages: Passage[]; edges: LinkEdge[] }
+type ConceptTarget = { conceptId: string } | { name: string; aliases?: string[] }
+interface LinkInput { passage?: PassageDraft; concept?: ConceptTarget; relatedPassage?: PassageDraft;
+                      source: LinkSource; origin?: { threadId?: string; messageId?: string } }   // needs a concept or two passages
+interface LinkResult { concept?: Concept; passages: Passage[]; edges: LinkEdge[] }
+interface ProposalPassage { page?: number; quote: string; chunkId: string }
+interface ConceptProposal { id: string; docPath: string; contentHash: string; name: string; aliases: string[];
+  passages: ProposalPassage[]; matchConceptId?: string; suggestedConceptId?: string; model: string; createdAt: string }
+interface ProposalPatch { name?: string; aliases?: string[]; passages?: ProposalPassage[]; matchConceptId?: string | null }
+interface ExtractProgress { docPath: string; contentHash: string; done: number; total: number;
+  state: "running" | "done" | "cancelled" | "error"; proposals: number; error?: string }
+
+interface LinksApi {
+  graph(): Promise<LinksGraph>
+  concepts: {
+    create(input: { name: string; aliases?: string[]; note?: string }): Promise<Concept>   // returns the existing one on a name/alias match
+    update(id: string, patch: { name?: string; aliases?: string[]; note?: string }): Promise<Concept>  // rename onto another concept -> error "merge instead"
+    merge(intoId: string, fromIds: string[]): Promise<Concept>
+    remove(id: string): Promise<void>                // drops its edges and orphaned passages
+  }
+  link(inputs: LinkInput[]): Promise<LinkResult[]>   // idempotent; max 50 per call
+  unlink(edgeId: string): Promise<void>
+  removePassage(id: string): Promise<void>
+  relocate(fromPath: string, toPath: string): Promise<{ moved: number; hashMatches: boolean }>
+  proposals: {
+    list(docPath?: string): Promise<ConceptProposal[]>
+    update(id: string, patch: ProposalPatch): Promise<ConceptProposal>
+    accept(ids: string[]): Promise<LinkResult[]>     // the only way extracted concepts reach the graph
+    reject(ids: string[]): Promise<void>             // remembers the folded name for that contentHash
+    merge(ids: string[], name: string): Promise<ConceptProposal>
+  }
+  extract(docPath: string): Promise<ExtractProgress> // manual run/resume on an indexed document
+  cancelExtract(docPath: string): Promise<void>
+  extractStatus(docPath: string): Promise<ExtractProgress | null>
+}
+// EventsApi additions:
+//   onLinksChanged(cb: (e: { revision: number; reason: "graph" | "proposals" }) => void): () => void
+//   onExtractProgress(cb: (e: ExtractProgress) => void): () => void
+```
+
+Identity: concepts match on `foldConceptKey` (accents, case, a leading article and punctuation
+folded) of name and aliases; passages match on `chunkId` (unless the draft carries selection rects)
+or on path + page + folded opening of the quote; edges on (from, to, kind), `related` in either
+direction.
+
+Extraction runs only after **user-triggered** indexing (`rag:index`, never the file watcher or a
+model-change rebuild) when `opts.extractConcepts ?? settings.graph.extractOnIndex`. It sends one
+chunk per request, parses tolerant JSON, verifies each quote against the chunk, drops generic
+names and names rejected before, and writes proposals after every chunk. Progress is resumable
+per `contentHash`.
+
 ---
 
 ## 2. Provider module interface (main process)
@@ -557,7 +662,26 @@ interface VectorIndex {
 
 Stored at `userData/index/<fileHash>.json`. Query: cosine similarity, then MMR
 (`mmrLambda` from settings) with an optional additive boost for chunks overlapping the current
-selection. `VectorStore` is an interface so a native backend can replace it later (D3/D4).
+selection. `VectorStore` is an interface so a native backend can replace it later (D3/D4); it
+also exposes `onChange` so the library cache (D18) follows saves and removals.
+
+### 4.1 Links file (`userData/links.json`, 06)
+
+```ts
+interface LinksFile {
+  version: 1
+  revision: number
+  concepts: Concept[]
+  passages: Passage[]
+  edges: LinkEdge[]
+  proposals: ConceptProposal[]                       // review queue; never part of the graph
+  extractions: Record<string /* contentHash */, {
+    docPath: string; model: string; doneOrdinals: number[]; total: number
+    state: "running" | "done" | "cancelled" | "error"; error?: string; updatedAt: string
+  }>
+  rejected: Record<string /* contentHash */, string[] /* folded concept keys */>
+}
+```
 
 ---
 
@@ -582,9 +706,14 @@ interface Thread {
     content: string
     quote?: SelectionQuote      // passage highlighted when the question was asked; sent to the model with it
     citations?: Citation[]
+    related?: RelatedPassage[]  // 06: matching passages in other documents, shown under the answer
     createdAt: string
   }[]
 }
+
+interface RelatedPassage { chunkId: string; docPath: string; docName: string; page?: number; snippet: string; score: number }
+
+// WorkspaceSession (userData/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06).
 ```
 
 Persisted to `userData/threads/<docId>.json`.

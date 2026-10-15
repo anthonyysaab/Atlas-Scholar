@@ -15,14 +15,22 @@ import type {
   BrowserState,
   CardDraft,
   ChatRequest,
+  Concept,
+  ConceptProposal,
   Deck,
   DocApi,
   ExtractedDoc,
+  ExtractProgress,
   FileRef,
   Flashcard,
   FlashcardsApi,
   HealthReport,
   IndexStatus,
+  LibrarySearchResult,
+  LinkResult,
+  LinksApi,
+  LinksChangedEvent,
+  LinksGraph,
   ModelInfo,
   OnboardingChoices,
   OnboardingStatus,
@@ -108,7 +116,8 @@ const ragApi: RagApi = {
   status: (docPath) => invoke<IndexStatus>(IPC.rag.status, docPath),
   remove: (docPath) => invoke<void>(IPC.rag.remove, docPath),
   query: (input) =>
-    invoke<RagQueryResult>(IPC.rag.query, input)
+    invoke<RagQueryResult>(IPC.rag.query, input),
+  search: (input) => invoke<LibrarySearchResult>(IPC.rag.search, input)
 };
 
 const llmApi: Api["llm"] = {
@@ -149,7 +158,9 @@ const eventsApi: Api["events"] = {
       cb
     ),
   onFileChanged: (cb) =>
-    subscribe<FileChangedEvent>(IPC.file.changed, (event) => cb({ path: event.path, type: event.type }))
+    subscribe<FileChangedEvent>(IPC.file.changed, (event) => cb({ path: event.path, type: event.type })),
+  onLinksChanged: (cb) => subscribe<LinksChangedEvent>(IPC.links.changed, cb),
+  onExtractProgress: (cb) => subscribe<ExtractProgress>(IPC.links.extractProgress, cb)
 };
 
 const healthApi: Api["health"] = {
@@ -210,6 +221,31 @@ const flashcardsApi: FlashcardsApi = {
   exportAnki: (deckId) => invoke<string | null>(IPC.flashcards.exportAnki, deckId)
 };
 
+const linksApi: LinksApi = {
+  graph: () => invoke<LinksGraph>(IPC.links.graph),
+  concepts: {
+    create: (input) => invoke<Concept>(IPC.links.conceptsCreate, input),
+    update: (id, patch) => invoke<Concept>(IPC.links.conceptsUpdate, id, patch),
+    merge: (intoId, fromIds) => invoke<Concept>(IPC.links.conceptsMerge, intoId, fromIds),
+    remove: (id) => invoke<void>(IPC.links.conceptsRemove, id)
+  },
+  link: (inputs) => invoke<LinkResult[]>(IPC.links.link, inputs),
+  unlink: (edgeId) => invoke<void>(IPC.links.unlink, edgeId),
+  removePassage: (id) => invoke<void>(IPC.links.passagesRemove, id),
+  relocate: (fromPath, toPath) =>
+    invoke<{ moved: number; hashMatches: boolean }>(IPC.links.relocate, fromPath, toPath),
+  proposals: {
+    list: (docPath) => invoke<ConceptProposal[]>(IPC.links.proposalsList, docPath),
+    update: (id, patch) => invoke<ConceptProposal>(IPC.links.proposalsUpdate, id, patch),
+    accept: (ids) => invoke<LinkResult[]>(IPC.links.proposalsAccept, ids),
+    reject: (ids) => invoke<void>(IPC.links.proposalsReject, ids),
+    merge: (ids, name) => invoke<ConceptProposal>(IPC.links.proposalsMerge, ids, name)
+  },
+  extract: (docPath) => invoke<ExtractProgress>(IPC.links.extract, docPath),
+  cancelExtract: (docPath) => invoke<void>(IPC.links.extractCancel, docPath),
+  extractStatus: (docPath) => invoke<ExtractProgress | null>(IPC.links.extractStatus, docPath)
+};
+
 const api: Api = {
   file: fileApi,
   doc: docApi,
@@ -225,7 +261,8 @@ const api: Api = {
   update: updateApi,
   browser: browserApi,
   workspace: workspaceApi,
-  flashcards: flashcardsApi
+  flashcards: flashcardsApi,
+  links: linksApi
 };
 
 contextBridge.exposeInMainWorld("api", api);

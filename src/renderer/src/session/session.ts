@@ -16,7 +16,11 @@ export async function restoreSession(): Promise<void> {
   } catch {
     return;
   }
-  if (!session || session.docs.length === 0) return;
+  if (!session) return;
+  if (session.docs.length === 0) {
+    if (session.graphOpen) useAppStore.getState().openGraph(null);
+    return;
+  }
 
   const viewState = useViewStateStore.getState();
   for (const path of session.docs) {
@@ -37,16 +41,25 @@ export async function restoreSession(): Promise<void> {
       .docs.find((doc) => doc.ref.path === session.activeDocPath);
     if (active) useAppStore.getState().setActiveDoc(active.id);
   }
+  if (session.graphOpen) {
+    useAppStore.getState().openGraph(null);
+    if (!session.graphActive) {
+      const app = useAppStore.getState();
+      if (app.activeDocId) app.setActiveDoc(app.activeDocId);
+    }
+  }
 }
 
 async function saveSession(): Promise<void> {
-  const { docs, activeDocId } = useAppStore.getState();
+  const { docs, activeDocId, graphTabOpen, centerView } = useAppStore.getState();
   const positions = useViewStateStore.getState().positions;
   const activeDoc = docs.find((doc) => doc.id === activeDocId);
   const session: WorkspaceSession = {
     docs: docs.map((doc) => doc.ref.path),
     activeDocPath: activeDoc?.ref.path ?? null,
-    positions: Object.fromEntries(docs.map((doc) => [doc.ref.path, positions[doc.ref.path] ?? {}]))
+    positions: Object.fromEntries(docs.map((doc) => [doc.ref.path, positions[doc.ref.path] ?? {}])),
+    ...(graphTabOpen ? { graphOpen: true } : {}),
+    ...(graphTabOpen && centerView === "graph" ? { graphActive: true } : {})
   };
   try {
     await window.api.workspace.session.set(session);

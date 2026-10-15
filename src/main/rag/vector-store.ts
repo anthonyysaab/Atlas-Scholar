@@ -13,7 +13,11 @@ export interface VectorStore {
   remove(contentHash: string): Promise<void>;
   findByDocPath(docPath: string): Promise<VectorIndex | null>;
   list(): Promise<VectorIndex[]>;
+  /** Notified after every save/remove so in-memory caches (library search) stay current. */
+  onChange(listener: (change: VectorStoreChange) => void): () => void;
 }
+
+export type VectorStoreChange = { type: "save"; index: VectorIndex } | { type: "remove"; contentHash: string };
 
 /**
  * `contentHash` is `sha256:<hex>`; the colon is illegal in Windows filenames, so it is replaced
@@ -40,6 +44,17 @@ function parseIndex(value: unknown): VectorIndex | null {
 }
 
 class FileVectorStore implements VectorStore {
+  private readonly listeners = new Set<(change: VectorStoreChange) => void>();
+
+  onChange(listener: (change: VectorStoreChange) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify(change: VectorStoreChange): void {
+    for (const listener of this.listeners) listener(change);
+  }
+
   private dir(): string {
     return join(app.getPath("userData"), "index");
   }
@@ -59,10 +74,12 @@ class FileVectorStore implements VectorStore {
   async save(index: VectorIndex): Promise<void> {
     await mkdir(this.dir(), { recursive: true });
     await writeFile(this.path(index.contentHash), JSON.stringify(index), "utf8");
+    this.notify({ type: "save", index });
   }
 
   async remove(contentHash: string): Promise<void> {
     await rm(this.path(contentHash), { force: true });
+    this.notify({ type: "remove", contentHash });
   }
 
   async list(): Promise<VectorIndex[]> {

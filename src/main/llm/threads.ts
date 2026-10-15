@@ -1,8 +1,8 @@
 import { app, dialog } from "electron";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Citation, SelectionQuote, Thread } from "@shared/types";
-import { asArray, asNumber, asRecord, asString, parseJson } from "@main/providers/json";
+import type { Citation, RelatedPassage, SelectionQuote, Thread } from "@shared/types";
+import { asArray, asNumber, asRecord, asString, parseJson, parseRects } from "@main/providers/json";
 
 const DOC_ID_RE = /^[a-zA-Z0-9._-]+$/;
 
@@ -24,7 +24,8 @@ function parseQuote(value: unknown): SelectionQuote | undefined {
   const text = asString(record?.["text"]);
   if (!text) return undefined;
   const page = asNumber(record?.["page"]);
-  return { text, ...(page !== undefined ? { page } : {}) };
+  const rects = parseRects(record?.["rects"]);
+  return { text, ...(page !== undefined ? { page } : {}), ...(rects.length > 0 ? { rects } : {}) };
 }
 
 function parseCitations(value: unknown): Citation[] {
@@ -35,7 +36,32 @@ function parseCitations(value: unknown): Citation[] {
     if (!chunkId || snippet === undefined) return [];
     const page = asNumber(record?.["page"]);
     const section = asString(record?.["section"]);
-    return [{ chunkId, snippet, ...(page !== undefined ? { page } : {}), ...(section ? { section } : {}) }];
+    const docPath = asString(record?.["docPath"]);
+    const docName = asString(record?.["docName"]);
+    return [
+      {
+        chunkId,
+        snippet,
+        ...(page !== undefined ? { page } : {}),
+        ...(section ? { section } : {}),
+        ...(docPath ? { docPath } : {}),
+        ...(docName ? { docName } : {})
+      }
+    ];
+  });
+}
+
+function parseRelated(value: unknown): RelatedPassage[] {
+  return asArray(value).flatMap((entry) => {
+    const record = asRecord(entry);
+    const chunkId = asString(record?.["chunkId"]);
+    const docPath = asString(record?.["docPath"]);
+    const docName = asString(record?.["docName"]);
+    const snippet = asString(record?.["snippet"]);
+    const score = asNumber(record?.["score"]);
+    if (!chunkId || !docPath || !docName || snippet === undefined || score === undefined) return [];
+    const page = asNumber(record?.["page"]);
+    return [{ chunkId, docPath, docName, snippet, score, ...(page !== undefined ? { page } : {}) }];
   });
 }
 
@@ -54,6 +80,7 @@ function parseThread(value: unknown): Thread | null {
     if (!messageId || content === undefined || !createdAt || role === null) return [];
     const quote = parseQuote(message?.["quote"]);
     const citations = parseCitations(message?.["citations"]);
+    const related = parseRelated(message?.["related"]);
     return [
       {
         id: messageId,
@@ -61,7 +88,8 @@ function parseThread(value: unknown): Thread | null {
         content,
         createdAt,
         ...(quote ? { quote } : {}),
-        ...(citations.length > 0 ? { citations } : {})
+        ...(citations.length > 0 ? { citations } : {}),
+        ...(related.length > 0 ? { related } : {})
       }
     ];
   });
@@ -73,6 +101,8 @@ export async function saveThread(thread: Thread): Promise<void> {
   await mkdir(threadsDir(), { recursive: true });
   await writeFile(path, `${JSON.stringify(thread, null, 2)}\n`, "utf8");
 }
+
+export { parseThread };
 
 export async function loadThread(docId: string): Promise<Thread | null> {
   try {
@@ -123,7 +153,8 @@ export function threadToMarkdown(thread: Thread): string {
       lines.push("Citations:", "");
       for (const citation of message.citations) {
         const where = citation.page !== undefined ? `p.${citation.page}` : citation.section ?? "chunk";
-        lines.push(`- ${where}: ${citation.snippet.replace(/\s+/g, " ").trim()}`);
+        const label = citation.docName ? `${citation.docName} ${where}` : where;
+        lines.push(`- ${label}: ${citation.snippet.replace(/\s+/g, " ").trim()}`);
       }
       lines.push("");
     }

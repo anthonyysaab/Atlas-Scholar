@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { openViaDialog } from "@renderer/lib/openFiles";
 import { useFileWatch } from "@renderer/hooks/useFileWatch";
@@ -8,7 +8,33 @@ import { resolveFileRenderer, type RendererViewProps } from "@renderer/viewer/re
 
 registerBuiltInRenderers();
 
+const GraphView = lazy(() => import("@renderer/graph/GraphView"));
+
 export function DocPane() {
+  const graphTabOpen = useAppStore((state) => state.graphTabOpen);
+  const showGraph = useAppStore((state) => state.centerView === "graph" && state.graphTabOpen);
+  return (
+    <div className="relative h-full">
+      {/* The viewer stays mounted (only hidden) under the graph so the PDF keeps its scroll and zoom. */}
+      <div className="h-full" style={showGraph ? { visibility: "hidden" } : undefined} aria-hidden={showGraph}>
+        <DocContent />
+      </div>
+      {graphTabOpen ? (
+        <div
+          className="absolute inset-0 z-10"
+          style={showGraph ? undefined : { visibility: "hidden", pointerEvents: "none" }}
+          aria-hidden={!showGraph}
+        >
+          <Suspense fallback={<div className="flex h-full items-center justify-center bg-bg text-xs text-text-weak">Loading graph…</div>}>
+            <GraphView />
+          </Suspense>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DocContent() {
   const doc = useAppStore(selectActiveDoc);
   useFileWatch(doc);
 

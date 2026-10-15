@@ -2,7 +2,7 @@ import { app } from "electron";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isThemePref } from "@shared/themes";
-import type { Settings, StoredProvider } from "@shared/types";
+import type { ChatScope, GraphSettings, Settings, StoredProvider } from "@shared/types";
 import { listConfiguredSecrets } from "./keyVault";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -12,6 +12,14 @@ export const DEFAULT_SETTINGS: Settings = {
   activeEmbeddingModel: "nomic-embed-text",
   rag: { topK: 6, chunkTokens: 700, chunkOverlap: 120, mmrLambda: 0.7 },
   chat: { scope: "document" },
+  graph: {
+    extractOnIndex: false,
+    maxConceptsPerDoc: 40,
+    relatedSuggestions: true,
+    relatedMinScore: 0.6,
+    wikiLinksInChat: true,
+    commitModelWikiLinks: false
+  },
   ui: {
     theme: "dark",
     sidebarOpen: true,
@@ -67,17 +75,40 @@ function normalizeStringList(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function normalizeScope(value: unknown): ChatScope {
+  return value === "extended" || value === "library" ? value : "document";
+}
+
+function normalizeGraph(value: unknown): GraphSettings {
+  const base = DEFAULT_SETTINGS.graph;
+  const raw = value !== null && typeof value === "object" ? (value as Partial<GraphSettings>) : {};
+  const bool = (entry: unknown, fallback: boolean): boolean => (typeof entry === "boolean" ? entry : fallback);
+  const num = (entry: unknown, fallback: number, min: number, max: number): number =>
+    typeof entry === "number" && Number.isFinite(entry) ? Math.min(max, Math.max(min, entry)) : fallback;
+  return {
+    extractOnIndex: bool(raw.extractOnIndex, base.extractOnIndex),
+    ...(typeof raw.extractProviderId === "string" && raw.extractProviderId ? { extractProviderId: raw.extractProviderId } : {}),
+    ...(typeof raw.extractModel === "string" && raw.extractModel ? { extractModel: raw.extractModel } : {}),
+    maxConceptsPerDoc: Math.round(num(raw.maxConceptsPerDoc, base.maxConceptsPerDoc, 1, 500)),
+    relatedSuggestions: bool(raw.relatedSuggestions, base.relatedSuggestions),
+    relatedMinScore: num(raw.relatedMinScore, base.relatedMinScore, 0, 1),
+    wikiLinksInChat: bool(raw.wikiLinksInChat, base.wikiLinksInChat),
+    commitModelWikiLinks: bool(raw.commitModelWikiLinks, base.commitModelWikiLinks)
+  };
+}
+
 let cache: Settings | null = null;
 
 function settingsPath(): string {
   return join(app.getPath("userData"), "settings.json");
 }
 
-function normalize(raw: Partial<Settings> | null): Settings {
+export function normalizeSettings(raw: Partial<Settings> | null): Settings {
   const base: Settings = {
     ...DEFAULT_SETTINGS,
     rag: { ...DEFAULT_SETTINGS.rag },
     chat: { ...DEFAULT_SETTINGS.chat },
+    graph: { ...DEFAULT_SETTINGS.graph },
     ui: { ...DEFAULT_SETTINGS.ui },
     keysConfigured: {},
     recentFiles: [...(DEFAULT_SETTINGS.recentFiles ?? [])],
@@ -92,7 +123,8 @@ function normalize(raw: Partial<Settings> | null): Settings {
     ...base,
     ...raw,
     rag: { ...base.rag, ...(raw.rag ?? {}) },
-    chat: { scope: raw.chat?.scope === "extended" ? "extended" : "document" },
+    chat: { scope: normalizeScope(raw.chat?.scope) },
+    graph: normalizeGraph(raw.graph),
     ui,
     keysConfigured: {},
     recentFiles: Array.isArray(raw.recentFiles)
@@ -108,9 +140,9 @@ async function loadCache(): Promise<Settings> {
   if (cache) return cache;
   try {
     const text = await readFile(settingsPath(), "utf8");
-    cache = normalize(JSON.parse(text) as Partial<Settings>);
+    cache = normalizeSettings(JSON.parse(text) as Partial<Settings>);
   } catch {
-    cache = normalize(null);
+    cache = normalizeSettings(null);
   }
   return cache;
 }
@@ -130,11 +162,12 @@ export async function getSettings(): Promise<Settings> {
 
 export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   const current = await loadCache();
-  cache = normalize({
+  cache = normalizeSettings({
     ...current,
     ...patch,
     rag: { ...current.rag, ...(patch.rag ?? {}) },
     chat: { ...current.chat, ...(patch.chat ?? {}) },
+    graph: { ...current.graph, ...(patch.graph ?? {}) },
     ui: { ...current.ui, ...(patch.ui ?? {}) }
   });
   await persist();

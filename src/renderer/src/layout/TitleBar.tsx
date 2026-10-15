@@ -4,8 +4,10 @@ import { useAppStore } from "@renderer/state/appStore";
 const isMac = navigator.userAgent.includes("Macintosh");
 
 export function TitleBar() {
-  const activeName = useAppStore(
-    (state) => state.docs.find((doc) => doc.id === state.activeDocId)?.ref.name ?? null
+  const activeName = useAppStore((state) =>
+    state.centerView === "graph" && state.graphTabOpen
+      ? "Concept graph"
+      : (state.docs.find((doc) => doc.id === state.activeDocId)?.ref.name ?? null)
   );
 
   return (

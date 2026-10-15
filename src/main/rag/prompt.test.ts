@@ -61,4 +61,24 @@ describe("buildPromptContext", () => {
     expect(prompt).toContain("x".repeat(50));
     expect(prompt).not.toContain("y".repeat(50));
   });
+
+  it("labels library excerpts with their document and uses the library rules", () => {
+    const library: Retrieved[] = [
+      { chunkId: "n:1", score: 0.9, page: 12, docPath: "C:/notes.pdf", docName: "M1_ML1", text: "Un cardinal infini." },
+      { chunkId: "e:1", score: 0.8, docPath: "C:/exam.pdf", docName: "Partiel2", text: "Exercice 1." }
+    ];
+    const prompt = buildPromptContext(library, { docName: "Partiel2.pdf", scope: "library" });
+    expect(prompt).toContain("[1] (M1_ML1, p.12)");
+    expect(prompt).toContain("[2] (Partiel2)");
+    expect(prompt).toContain("Library excerpts:");
+    expect(prompt).toMatch(/several documents in the user's library/);
+    expect(prompt).not.toMatch(/Beyond the document/);
+  });
+
+  it("adds the wiki-link rule with known concept names only when asked", () => {
+    expect(buildPromptContext(excerpts)).not.toContain("[[");
+    const prompt = buildPromptContext(excerpts, { wikiLinks: { knownConcepts: ["cardinal infini"] } });
+    expect(prompt).toContain("double square brackets");
+    expect(prompt).toContain("[[cardinal infini]]");
+  });
 });

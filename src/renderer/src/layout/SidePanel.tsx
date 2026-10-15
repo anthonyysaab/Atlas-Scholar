@@ -9,13 +9,13 @@ export function SidePanel() {
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-bg-subtle">
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [scrollbar-width:thin]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => void switchPanelTab(tab.id)}
-            className={`rounded px-2.5 py-1 text-xs ${
+            className={`shrink-0 rounded px-2.5 py-1 text-xs ${
               tab.id === active?.id ? "bg-panel text-text" : "text-text-weak hover:bg-panel hover:text-text"
             }`}
           >

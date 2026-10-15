@@ -27,7 +27,9 @@ export async function buildPromptContext(
       chunkId: chunk.chunkId,
       ...(chunk.page !== undefined ? { page: chunk.page } : {}),
       ...(chunk.section !== undefined ? { section: chunk.section } : {}),
-      snippet: chunk.text.slice(0, 240)
+      snippet: chunk.text.slice(0, 240),
+      ...(chunk.docPath ? { docPath: chunk.docPath } : {}),
+      ...(chunk.docName ? { docName: chunk.docName } : {})
     }));
     return {
       promptContext: result.promptContext,

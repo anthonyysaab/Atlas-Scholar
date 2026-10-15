@@ -5,12 +5,14 @@ export interface PromptContextOptions {
   maxChars?: number;
   scope?: ChatScope;
   study?: boolean;
+  /** Ask the model to mark key concepts as [[wiki-links]], preferring these existing names. */
+  wikiLinks?: { knownConcepts: string[] };
 }
 
 function labelFor(chunk: Retrieved): string {
-  if (chunk.page !== undefined) return ` (p.${chunk.page})`;
-  if (chunk.section) return ` (${chunk.section})`;
-  return "";
+  const where = chunk.page !== undefined ? `p.${chunk.page}` : chunk.section;
+  if (chunk.docName) return where ? ` (${chunk.docName}, ${where})` : ` (${chunk.docName})`;
+  return where ? ` (${where})` : "";
 }
 
 const MATH_RULE =
@@ -27,6 +29,13 @@ const EXTENDED_RULES = [
   '1. "From the document": use ONLY the numbered excerpts below and any passage the user highlighted. Cite every excerpt you rely on with its bracketed number, e.g. [1] or [2][3]. If they do not answer the question, say the document does not cover it.',
   '2. "Beyond the document": add general knowledge only if it genuinely helps (context, corrections, examples). Never cite excerpts there. Omit this section entirely if it would add nothing.',
   "Never mix the two: anything not supported by the excerpts belongs in the second section."
+];
+
+const LIBRARY_RULES = [
+  "The numbered excerpts below come from several documents in the user's library; each is labelled with its document and page.",
+  "Answer the user's question using ONLY these excerpts and any passage the user highlighted.",
+  "Cite every excerpt you rely on with its bracketed number, e.g. [1] or [2][3]. When documents say different things or one explains another, name the documents.",
+  "If the excerpts do not contain the answer, say you could not find it in the library; do not use outside knowledge."
 ];
 
 // Study mode replaces the answer-format rules instead of adding to them: small local models follow
@@ -52,6 +61,23 @@ const STUDY_EXTENDED_RULES = [
   "You may also draw on general knowledge; say so when a hint goes beyond the document."
 ];
 
+const STUDY_LIBRARY_RULES = [
+  "The numbered excerpts below come from several documents in the user's library, labelled with document and page. Base your hints on them, citing with their bracketed number, e.g. [1].",
+  "Point the user to the document and page where the idea is explained when that helps them find it themselves.",
+  "Do not use outside knowledge; if the excerpts do not cover the topic, say so."
+];
+
+const WIKILINK_RULE =
+  "Wrap the name of each key concept (at most 3) in double square brackets the first time you mention it, e.g. [[cardinal infini]]. Use the concept's short canonical name in the language of the documents, never inside math.";
+
+function wikiLinkRule(knownConcepts: readonly string[]): string {
+  if (knownConcepts.length === 0) return WIKILINK_RULE;
+  return `${WIKILINK_RULE} Prefer these existing concept names when they fit: ${knownConcepts
+    .slice(0, 30)
+    .map((name) => `[[${name}]]`)
+    .join(", ")}.`;
+}
+
 const STUDY_REMINDER =
   "Reminder, study mode: do not give the answer. Guide the user through the next step only, with one hint or question, then wait.";
 
@@ -73,18 +99,30 @@ export function buildPromptContext(retrieved: Retrieved[], options: PromptContex
     used += block.length;
   }
 
+  const library = options.scope === "library";
   const role = options.docName
-    ? `You are a reading assistant helping the user understand the document "${options.docName}".`
+    ? library
+      ? `You are a reading assistant. The user is reading "${options.docName}" and asking about their whole library of documents.`
+      : `You are a reading assistant helping the user understand the document "${options.docName}".`
     : "You are a reading assistant helping the user understand a document.";
   const extended = options.scope === "extended";
   const rules = options.study
-    ? [...STUDY_RULES, ...(extended ? STUDY_EXTENDED_RULES : STUDY_DOCUMENT_RULES)]
-    : extended
-      ? EXTENDED_RULES
-      : DOCUMENT_RULES;
-  const instructions = [role, ...rules, "Answer in the language of the user's question.", MATH_RULE];
+    ? [...STUDY_RULES, ...(library ? STUDY_LIBRARY_RULES : extended ? STUDY_EXTENDED_RULES : STUDY_DOCUMENT_RULES)]
+    : library
+      ? LIBRARY_RULES
+      : extended
+        ? EXTENDED_RULES
+        : DOCUMENT_RULES;
+  const instructions = [
+    role,
+    ...rules,
+    "Answer in the language of the user's question.",
+    MATH_RULE,
+    ...(options.wikiLinks ? [wikiLinkRule(options.wikiLinks.knownConcepts)] : [])
+  ];
 
-  const excerpts = numbered.length > 0 ? ["Document excerpts:", ...numbered] : ["No document excerpts are available."];
+  const heading = library ? "Library excerpts:" : "Document excerpts:";
+  const excerpts = numbered.length > 0 ? [heading, ...numbered] : ["No document excerpts are available."];
   // Repeated after the excerpts: with ~12k chars of context in between, small models lose the rule.
   return [instructions.join("\n"), ...excerpts, ...(options.study ? [STUDY_REMINDER] : [])].join("\n\n");
 }

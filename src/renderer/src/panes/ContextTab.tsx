@@ -4,8 +4,9 @@ import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
 import { useExtractedDoc } from "@renderer/context/useExtractedDoc";
 import { useIndexStatus } from "@renderer/context/useIndexStatus";
-import { requestReindex } from "@renderer/lib/commands";
+import { requestReindex, switchPanelTab } from "@renderer/lib/commands";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
+import { extractionFor, useLinksStore } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 
 const MAP_LIMIT = 400;
@@ -39,6 +40,14 @@ export function ContextTab() {
   const chunkTokens = useSettingsStore((state) => state.settings?.rag.chunkTokens ?? 700);
   const { status, progress, refresh } = useIndexStatus(doc?.ref.path ?? null);
   const extracted = useExtractedDoc(doc?.ref.path ?? null);
+  const graphSettings = useSettingsStore((state) => state.settings?.graph);
+  const extractOnIndex = graphSettings?.extractOnIndex ?? false;
+  const extraction = useLinksStore((state) => extractionFor(state, doc?.ref.path ?? null));
+
+  const toggleExtract = async (value: boolean): Promise<void> => {
+    if (!graphSettings) return;
+    await useSettingsStore.getState().patch({ graph: { ...graphSettings, extractOnIndex: value } });
+  };
 
   const mapEntries = useMemo(() => {
     if (!extracted) return [];
@@ -105,6 +114,29 @@ export function ContextTab() {
 
           {status?.state === "error" ? (
             <p className="mt-2 leading-relaxed text-danger">{status.error ?? "Indexing failed."}</p>
+          ) : null}
+
+          <label className="mt-3 flex cursor-pointer items-start gap-2 border-t border-border pt-2 text-text-weak">
+            <input
+              type="checkbox"
+              checked={extractOnIndex}
+              onChange={(event) => void toggleExtract(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Extract concepts when indexing
+              <span className="block text-[11px]">They wait in the Links tab for review before reaching the graph.</span>
+            </span>
+          </label>
+          {extraction && extraction.total > 0 ? (
+            <button
+              type="button"
+              onClick={() => void switchPanelTab("links")}
+              className="mt-1 text-left text-[11px] text-text-weak hover:text-text"
+            >
+              Concepts: {extraction.state === "running" ? "extracting" : extraction.state} {extraction.done}/{extraction.total}
+              {extraction.proposals > 0 ? ` · ${extraction.proposals} to review` : ""} →
+            </button>
           ) : null}
         </div>
       </section>

@@ -1,8 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import type { Citation, Thread } from "@shared/types";
-import { Markdown } from "@renderer/components/Markdown";
+import { samePath, shortDocLabel } from "@shared/docLabel";
+import { ConceptRendererContext, Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { requestCitationJump } from "@renderer/context/citationJump";
+import { ConceptChip } from "@renderer/chat/ConceptChip";
+import { RelatedRow } from "@renderer/chat/RelatedRow";
 import { splitThink } from "@renderer/chat/think";
 import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
 
@@ -21,15 +24,21 @@ function CitationChips({
     <div className="mt-1 flex flex-wrap gap-1">
       {citations.map((citation, index) => {
         const where = citation.page !== undefined ? `p.${citation.page}` : citation.section;
-        const label = where ? `[${index + 1}] ${where}` : `[${index + 1}]`;
+        const elsewhere = citation.docPath !== undefined && !samePath(citation.docPath, docPath);
+        const doc = elsewhere ? citation.docName ?? shortDocLabel(citation.docPath ?? "") : "";
+        const label = [`[${index + 1}]`, doc, where].filter(Boolean).join(" ");
         return (
           <button
             key={`${citation.chunkId}-${index}`}
             type="button"
-            title={citation.snippet}
-            disabled={citation.page === undefined}
+            title={elsewhere ? `${citation.docPath}
+
+${citation.snippet}` : citation.snippet}
+            disabled={citation.page === undefined && !elsewhere}
             onClick={() => requestCitationJump({ docId, docPath, citation })}
-            className="rounded bg-bg-subtle px-1.5 py-0.5 text-[10px] text-text-weak hover:text-text disabled:hover:text-text-weak"
+            className={`rounded bg-bg-subtle px-1.5 py-0.5 text-[10px] hover:text-text disabled:hover:text-text-weak ${
+              elsewhere ? "text-accent" : "text-text-weak"
+            }`}
           >
             {label}
           </button>
@@ -41,16 +50,31 @@ function CitationChips({
 
 function MessageRow({
   message,
+  previous,
+  threadId,
   streaming,
   docId,
   docPath
 }: {
   message: ThreadMessage;
+  previous: ThreadMessage | undefined;
+  threadId: string;
   streaming: boolean;
   docId: string;
   docPath: string;
 }) {
   const isUser = message.role === "user";
+  const renderConcept = useCallback(
+    (name: string, children: ReactNode) => (
+      <ConceptChip
+        name={name}
+        onCommit={(conceptName) => useChatStore.getState().commitConcept(threadId, message.id, docPath, conceptName)}
+      >
+        {children}
+      </ConceptChip>
+    ),
+    [threadId, message.id, docPath]
+  );
   const { reasoning, answer, thinking } = isUser
     ? { reasoning: null, answer: message.content, thinking: false }
     : splitThink(message.content);
@@ -86,11 +110,25 @@ function MessageRow({
             <div className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-2">{reasoning}</div>
           </details>
         ) : null}
-        {answer ? <Markdown content={answer} /> : null}
+        {answer ? (
+          <ConceptRendererContext.Provider value={renderConcept}>
+            <Markdown content={answer} wikiLinks />
+          </ConceptRendererContext.Provider>
+        ) : null}
         {streaming ? <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-text align-middle" /> : null}
       </div>
       {message.citations && message.citations.length > 0 ? (
         <CitationChips citations={message.citations} docId={docId} docPath={docPath} />
+      ) : null}
+      {!isUser && !streaming && message.related && message.related.length > 0 ? (
+        <RelatedRow
+          related={message.related}
+          answer={answer}
+          question={previous?.role === "user" ? previous.content : undefined}
+          quote={previous?.role === "user" ? previous.quote : undefined}
+          docPath={docPath}
+          origin={{ threadId, messageId: message.id }}
+        />
       ) : null}
     </div>
   );
@@ -121,10 +159,12 @@ export function Transcript({ docId, docPath }: { docId: string; docPath: string 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="flex flex-col gap-3">
-        {thread.messages.map((message) => (
+        {thread.messages.map((message, index) => (
           <MessageRow
             key={message.id}
             message={message}
+            previous={thread.messages[index - 1]}
+            threadId={thread.id}
             streaming={streaming && message.id === lastMessage?.id && message.role === "assistant"}
             docId={docId}
             docPath={docPath}

@@ -4,6 +4,7 @@ import { registerDocIpc } from "./doc";
 import { registerFileIpc } from "./file";
 import { registerFlashcardsIpc } from "./flashcards";
 import { registerHealthIpc } from "./health";
+import { registerLinksIpc } from "./links";
 import { registerLlmIpc } from "./llm";
 import { registerOnboardingIpc } from "./onboarding";
 import { registerProvidersIpc } from "./providers";
@@ -29,5 +30,6 @@ export function registerIpcHandlers(): void {
   registerBrowserIpc();
   registerWorkspaceIpc();
   registerFlashcardsIpc();
+  registerLinksIpc();
   registerStubIpc();
 }

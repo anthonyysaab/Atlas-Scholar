@@ -148,3 +148,34 @@ endpoints (Ollama, LM Studio, llama.cpp/vLLM via the OpenAI-compatible module).
 **Consequence:** `chat/ModelPicker.tsx` is removed; `chat/ModelPalette.tsx` and
 `chat/useDefaultModel.ts` replace it, and `AppStore` gains `modelPaletteOpen`. No protocol change.
 **Date:** 2026-10-09
+
+## D17 — Concept graph: app-wide links store, review-gated extraction, d3-force + canvas
+**Decision:** Cross-document links live in one app-wide `userData/links.json` (concepts,
+passages, edges, a review queue of extracted proposals), keyed by `docPath` (case-insensitive on
+Windows) with `contentHash` to flag stale passages, never by the per-tab `OpenDoc.id`. Nodes are
+concepts and passages; documents are colours/clusters. Links come from the selection toolbar,
+`[[wiki-links]]` in chat, "Related in your other PDFs" suggestions, and model extraction during
+user-triggered indexing — extracted concepts **never reach the graph until the user accepts them**,
+and the model's own `[[links]]` stay ghost chips unless `graph.commitModelWikiLinks` is on. The
+graph renders with `d3-force` (pure ES modules, no `eval`, ~15 KB, lazy-loaded) on our own canvas
+renderer; the centre-pane graph is a separate `centerView`, not a virtual `OpenDoc`.
+**Why:** The user wants Obsidian-style mapping between PDFs while chatting. A sidecar per PDF
+cannot hold links that span documents. `force-graph`/`cytoscape`/`sigma` are heavier or need
+WebGL; d3-force is the minimal CSP-safe physics. A virtual `OpenDoc` would have rippled through
+~15 components that assume a real file.
+**Consequence:** New `Api.links` (§1.12), `links:*` channels, `Settings.graph`, `PanelTab "links"`.
+Passages without selection rects open at their page only (no text search in the PDF viewer).
+**Date:** 2026-10-15
+
+## D18 — Library scope: brute-force search over all indexes, in-memory Float32 cache
+**Decision:** A third chat scope, `library`, retrieves from every document indexed with the
+active embedding model (newest index per document), by dot product over L2-normalized vectors,
+then MMR, with a per-document cap in `rag:search`. Indexes are parsed once into a
+`LibraryCache` of `Float32Array`s, warmed 3 s after startup and kept current via
+`VectorStore.onChange`. Indexes built with another embedding model are skipped and reported.
+**Why:** Pure JS (D3) rules out a native ANN index; brute force stays well under D4's ~10⁵-chunk
+budget for a personal library, and Float32 halves memory against the JSON `number[]` form.
+**Consequence:** Citations and `Retrieved` carry `docPath`/`docName`; prompts label excerpts
+`(docName, p.N)`; thread parsing keeps those fields. Unindexed documents are invisible to library
+search, related suggestions and extraction.
+**Date:** 2026-10-15

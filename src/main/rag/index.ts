@@ -1,6 +1,13 @@
 import { watch, type FSWatcher } from "node:fs";
 import { basename, resolve } from "node:path";
-import type { IndexStatus, RagQueryInput, RagQueryResult, Retrieved } from "@shared/types";
+import type {
+  IndexStatus,
+  LibrarySearchInput,
+  LibrarySearchResult,
+  RagQueryInput,
+  RagQueryResult,
+  Retrieved
+} from "@shared/types";
 import { IPC } from "@shared/channels";
 import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
@@ -8,6 +15,7 @@ import { resolveProviderConfig } from "@main/providers";
 import { extractDoc } from "@main/ingest/extract";
 import { chunkDocument } from "./chunk";
 import { resolveEmbedder } from "./embed";
+import { LibraryCache } from "./library";
 import { buildPromptContext } from "./prompt";
 import { normalizeVector, retrieve } from "./retrieve";
 import type { ProgressPhase } from "./types";
@@ -20,6 +28,9 @@ const watchers = new Map<string, FSWatcher>();
 const watchTimers = new Map<string, NodeJS.Timeout>();
 
 const NONE_STATUS: Omit<IndexStatus, "docPath"> = { state: "none", chunks: 0, dim: 0, embedModel: "" };
+
+export const libraryCache = new LibraryCache(() => vectorStore.list());
+vectorStore.onChange((change) => libraryCache.apply(change));
 
 function abortError(): Error {
   const error = new Error("Indexing cancelled");
@@ -69,6 +80,7 @@ function describeFailure(error: unknown, providerName: string): string {
 }
 
 function cancelInFlight(path: string): void {
+  cancelHook(path);
   const controller = controllers.get(path);
   if (controller) {
     controller.abort();
@@ -128,7 +140,40 @@ function ensureWatcher(path: string): void {
  * `state: "error"` with an actionable `error` string rather than throwing, so the renderer can
  * show them in the Context tab.
  */
-export async function indexDocument(docPath: string, opts?: { force?: boolean }): Promise<IndexStatus> {
+export interface IndexOptions {
+  force?: boolean;
+  /** Overrides `settings.graph.extractOnIndex` for this run. */
+  extractConcepts?: boolean;
+  /** Only user-initiated indexing may start concept extraction; watcher/model rebuilds never do. */
+  trigger?: "user" | "watch" | "rebuild";
+}
+
+type IndexReadyHook = (index: VectorIndex, opts: IndexOptions) => void;
+
+let indexReadyHook: IndexReadyHook = () => undefined;
+
+/** Lets the concept-graph module start extraction without `rag` importing it. */
+export function setIndexReadyHook(hook: IndexReadyHook): void {
+  indexReadyHook = hook;
+}
+
+type CancelHook = (docPath: string) => void;
+
+let cancelHook: CancelHook = () => undefined;
+
+export function setIndexCancelHook(hook: CancelHook): void {
+  cancelHook = hook;
+}
+
+function notifyReady(index: VectorIndex, opts: IndexOptions | undefined): void {
+  try {
+    indexReadyHook(index, opts ?? {});
+  } catch {
+    // Extraction is best-effort; it must never turn a successful index into a failure.
+  }
+}
+
+export async function indexDocument(docPath: string, opts?: IndexOptions): Promise<IndexStatus> {
   const path = resolve(docPath);
   cancelInFlight(path);
 
@@ -152,6 +197,7 @@ export async function indexDocument(docPath: string, opts?: { force?: boolean })
         statuses.set(path, status);
         ensureWatcher(path);
         emitProgress(path, existing.chunks.length, existing.chunks.length, "ready");
+        notifyReady(existing, opts);
         return status;
       }
     }
@@ -218,6 +264,7 @@ export async function indexDocument(docPath: string, opts?: { force?: boolean })
     statuses.set(path, status);
     ensureWatcher(path);
     emitProgress(path, index.chunks.length, index.chunks.length, "ready");
+    notifyReady(index, opts);
     return status;
   } catch (error) {
     if (isAbort(error) || controller.signal.aborted) {
@@ -276,6 +323,17 @@ const FALLBACK_PAGE_CHARS = 5000;
 const FALLBACK_WINDOW_CHARS = 4000;
 const NOTICE_REASON_CHARS = 160;
 
+async function embedQuery(question: string, selection?: string): Promise<number[]> {
+  const embedder = await resolveEmbedder();
+  // Embedding the highlighted passage alongside the question lets "what does this mean?" find
+  // the passage's neighbourhood instead of matching only the question's wording.
+  const queryText = selection ? `${selection.slice(0, SELECTION_EMBED_CHARS)}
+
+${question}` : question;
+  const [queryVector] = await embedder.embed([queryText], new AbortController().signal);
+  return queryVector ?? [];
+}
+
 /** Whole-document retrieval; `null` when the document has no usable index. */
 async function retrieveFromIndex(path: string, input: RagQueryInput): Promise<Retrieved[] | null> {
   let index = await vectorStore.findByDocPath(path);
@@ -283,7 +341,7 @@ async function retrieveFromIndex(path: string, input: RagQueryInput): Promise<Re
   if (index && !indexMatchesModel(index, model)) {
     // The embedding model changed since this index was built; rebuild before it can be used so we
     // never score a fresh query against vectors from a different model.
-    await indexDocument(path, { force: true });
+    await indexDocument(path, { force: true, trigger: "rebuild" });
     index = await vectorStore.findByDocPath(path);
   }
   if (!index || index.chunks.length === 0 || !indexMatchesModel(index, model)) return null;
@@ -332,18 +390,114 @@ function describeNearby(nearby: Retrieved[]): string {
   return first === last ? `page ${first}` : `pages ${first}–${last}`;
 }
 
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+/** Library scope: retrieve from every indexed document, the open one included. */
+async function retrieveFromLibrary(
+  path: string,
+  input: RagQueryInput
+): Promise<{ retrieved: Retrieved[]; notice?: string } | null> {
+  const settings = await getSettings();
+  const model = settings.activeEmbeddingModel;
+  const { usable, skipped } = await libraryCache.documents(model);
+  if (usable.length === 0) return null;
+  const queryVector = await embedQuery(input.question, input.selection);
+  const result = await libraryCache.search(queryVector, {
+    embedModel: model,
+    topK: input.topK ?? settings.rag.topK,
+    mmrLambda: settings.rag.mmrLambda,
+    ...(input.selection ? { selection: input.selection } : {})
+  });
+  const notices: string[] = [];
+  const currentIndexed = usable.some((doc) => doc.docPath === path);
+  if (usable.length === 1) {
+    notices.push(
+      currentIndexed
+        ? "Only this document is indexed — index your other PDFs to search across them."
+        : "Only one document is indexed — index this one and your other PDFs to search across them."
+    );
+  } else if (!currentIndexed) {
+    notices.push("This document is not indexed yet, so it is not part of the library search.");
+  }
+  if (skipped.length > 0) {
+    const verb = skipped.length === 1 ? "was" : "were";
+    notices.push(`${plural(skipped.length, "document")} indexed with another embedding model ${verb} skipped — re-index to include.`);
+  }
+  return { retrieved: result.retrieved, ...(notices.length > 0 ? { notice: notices.join(" ") } : {}) };
+}
+
+/** Semantic search across the library for link suggestions and the link picker. */
+export async function searchLibraryText(input: LibrarySearchInput): Promise<LibrarySearchResult> {
+  const settings = await getSettings();
+  const queryVector = await embedQuery(input.text);
+  return libraryCache.search(queryVector, {
+    embedModel: settings.activeEmbeddingModel,
+    topK: input.topK ?? settings.rag.topK,
+    mmrLambda: settings.rag.mmrLambda,
+    ...(input.excludeDocPaths ? { excludeDocPaths: input.excludeDocPaths.map((entry) => resolve(entry)) } : {}),
+    ...(input.docPaths ? { docPaths: input.docPaths.map((entry) => resolve(entry)) } : {}),
+    ...(input.minScore !== undefined ? { minScore: input.minScore } : {}),
+    ...(input.perDoc !== undefined ? { perDoc: input.perDoc } : {})
+  });
+}
+
+type KnownConceptsProvider = (docPaths: string[]) => Promise<string[]>;
+
+let knownConceptsFor: KnownConceptsProvider = async () => [];
+
+/** Lets the links store feed existing concept names into the [[wiki-link]] prompt rule. */
+export function setKnownConceptsProvider(provider: KnownConceptsProvider): void {
+  knownConceptsFor = provider;
+}
+
+async function wikiLinkOptions(input: RagQueryInput, path: string, retrieved: Retrieved[]) {
+  if (input.scope !== "library" && input.study !== true) return undefined;
+  const settings = await getSettings().catch(() => null);
+  if (!settings?.graph.wikiLinksInChat) return undefined;
+  const docPaths = [...new Set([path, ...retrieved.flatMap((chunk) => (chunk.docPath ? [chunk.docPath] : []))])];
+  const knownConcepts = await knownConceptsFor(docPaths).catch(() => []);
+  return { knownConcepts };
+}
+
 export async function queryDocument(input: RagQueryInput): Promise<RagQueryResult> {
   const path = resolve(input.docPath);
-  const promptFor = (retrieved: Retrieved[]): string =>
-    buildPromptContext(retrieved, { docName: basename(path), scope: input.scope ?? "document", study: input.study === true });
+  const promptFor = async (retrieved: Retrieved[]): Promise<string> => {
+    const wikiLinks = await wikiLinkOptions(input, path, retrieved);
+    return buildPromptContext(retrieved, {
+      docName: basename(path),
+      scope: input.scope ?? "document",
+      study: input.study === true,
+      ...(wikiLinks ? { wikiLinks } : {})
+    });
+  };
 
   let reason = "Not indexed";
-  try {
-    const retrieved = await retrieveFromIndex(path, input);
-    if (retrieved) return { retrieved, promptContext: promptFor(retrieved), grounding: "index" };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    reason = `Search unavailable (${message.slice(0, NOTICE_REASON_CHARS)})`;
+  if (input.scope === "library") {
+    try {
+      const library = await retrieveFromLibrary(path, input);
+      if (library && library.retrieved.length > 0) {
+        return {
+          retrieved: library.retrieved,
+          promptContext: await promptFor(library.retrieved),
+          grounding: "index",
+          ...(library.notice ? { notice: library.notice } : {})
+        };
+      }
+      reason = "No indexed documents";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reason = `Search unavailable (${message.slice(0, NOTICE_REASON_CHARS)})`;
+    }
+  } else {
+    try {
+      const retrieved = await retrieveFromIndex(path, input);
+      if (retrieved) return { retrieved, promptContext: await promptFor(retrieved), grounding: "index" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reason = `Search unavailable (${message.slice(0, NOTICE_REASON_CHARS)})`;
+    }
   }
 
   const nearby =
@@ -353,7 +507,7 @@ export async function queryDocument(input: RagQueryInput): Promise<RagQueryResul
   if (nearby.length > 0) {
     return {
       retrieved: nearby,
-      promptContext: promptFor(nearby),
+      promptContext: await promptFor(nearby),
       grounding: "page",
       notice: `${reason} — answered from ${describeNearby(nearby)} only. Index the document to search all of it.`
     };
@@ -361,7 +515,7 @@ export async function queryDocument(input: RagQueryInput): Promise<RagQueryResul
   const seen = input.selection ? "your highlighted passage" : "your question";
   return {
     retrieved: [],
-    promptContext: promptFor([]),
+    promptContext: await promptFor([]),
     grounding: "none",
     notice: `${reason} — the model only sees ${seen}, not the document. Index the document to search it.`
   };
@@ -377,7 +531,7 @@ export async function handleFileChanged(filePath: string, type: "change" | "unli
     cancelInFlight(path);
     return;
   }
-  await indexDocument(path);
+  await indexDocument(path, { trigger: "watch" });
 }
 
 export function listStatuses(): IndexStatus[] {

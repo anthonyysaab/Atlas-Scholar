@@ -141,6 +141,20 @@ export function HighlightLayer() {
     setToolbarPos(null);
   }, []);
 
+  const linkFromSelection = useCallback((selection: DocSelection) => {
+    useAppStore.getState().openLinkPicker({
+      passage: {
+        docPath: selection.docPath,
+        quote: selection.text,
+        ...(selection.page > 0 ? { page: selection.page } : {}),
+        ...(selection.rects.length > 0 ? { rects: selection.rects } : {})
+      }
+    });
+    emitSelection(null);
+    setPendingSelection(null);
+    setToolbarPos(null);
+  }, []);
+
   useEffect(() => {
     if (!docPath) return;
     void load(docPath);
@@ -237,22 +251,42 @@ export function HighlightLayer() {
           void createHighlight(selection);
         }
       }
+      if ((event.key === "l" || event.key === "L") && !typing) {
+        const selection = selectionRef.current;
+        if (selection && selection.kind === "pdf" && selection.rects.length > 0 && selection.text.trim()) {
+          event.preventDefault();
+          linkFromSelection(selection);
+        }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createHighlight]);
+  }, [createHighlight, linkFromSelection]);
 
   return (
     <>
       {toolbarPos && pendingSelection ? (
-        <button
-          type="button"
-          onClick={() => void createHighlight(pendingSelection)}
+        <div
           style={{ position: "fixed", left: toolbarPos.left, top: toolbarPos.top, zIndex: 60 }}
-          className="app-no-drag rounded border border-border bg-panel px-2 py-1 text-xs text-text shadow"
+          className="app-no-drag flex overflow-hidden rounded border border-border bg-panel text-xs text-text shadow"
         >
-          Highlight ⏎H
-        </button>
+          <button
+            type="button"
+            onClick={() => void createHighlight(pendingSelection)}
+            className="px-2 py-1 hover:bg-bg-subtle"
+          >
+            Highlight ⏎H
+          </button>
+          <button
+            type="button"
+            onClick={() => linkFromSelection(pendingSelection)}
+            disabled={!pendingSelection.text.trim()}
+            title="Link this passage to a concept or to a passage in another PDF"
+            className="border-l border-border px-2 py-1 hover:bg-bg-subtle disabled:opacity-40"
+          >
+            Link… L
+          </button>
+        </div>
       ) : null}
       {popoverAnnotation && popoverPos ? (
         <NotePopover

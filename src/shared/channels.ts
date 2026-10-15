@@ -25,6 +25,7 @@ export const IPC = {
     status: "rag:status",
     remove: "rag:remove",
     query: "rag:query",
+    search: "rag:search",
     progress: "rag:progress"
   },
   llm: {
@@ -90,6 +91,27 @@ export const IPC = {
     setVisible: "browser:setVisible",
     current: "browser:current",
     state: "browser:state"
+  },
+  links: {
+    graph: "links:graph",
+    conceptsCreate: "links:concepts:create",
+    conceptsUpdate: "links:concepts:update",
+    conceptsMerge: "links:concepts:merge",
+    conceptsRemove: "links:concepts:remove",
+    link: "links:link",
+    unlink: "links:unlink",
+    passagesRemove: "links:passages:remove",
+    relocate: "links:relocate",
+    proposalsList: "links:proposals:list",
+    proposalsUpdate: "links:proposals:update",
+    proposalsAccept: "links:proposals:accept",
+    proposalsReject: "links:proposals:reject",
+    proposalsMerge: "links:proposals:merge",
+    extract: "links:extract",
+    extractCancel: "links:extract:cancel",
+    extractStatus: "links:extract:status",
+    changed: "links:changed",
+    extractProgress: "links:extractProgress"
   },
   workspace: {
     bookmarksList: "workspace:bookmarks:list",

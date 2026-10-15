@@ -1,13 +1,17 @@
 import { create } from "zustand";
 import type { ChatMessage, Citation, SelectionQuote, Thread } from "@shared/types";
 import { buildPromptContext } from "@renderer/chat/context";
+import { buildRelatedQuery, pickRelated } from "@renderer/chat/related";
 import { stripThink } from "@renderer/chat/think";
+import { wikiInputsForMessage, wikiInputsForTurn } from "@renderer/chat/wikiLinks";
+import { useLinksStore } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 
 type ThreadMessage = Thread["messages"][number];
 
 export interface StreamMeta {
   docId: string;
+  docPath: string;
   threadId: string;
   messageId: string;
   streamId: string;
@@ -40,6 +44,8 @@ interface ChatState {
   handleToken: (event: { streamId: string; delta: string }) => void;
   handleDone: (event: { streamId: string; usage?: unknown }) => void;
   handleError: (event: { streamId: string; error: string }) => void;
+  /** Add one [[concept]] from a message to the graph (a ghost chip was clicked); returns its id. */
+  commitConcept: (threadId: string, messageId: string, docPath: string, name: string) => Promise<string | null>;
 }
 
 function newId(): string {
@@ -262,7 +268,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return {
         streams: {
           ...state.streams,
-          [streamId]: { docId, threadId, messageId: assistantId, streamId, citations: context.citations }
+          [streamId]: { docId, docPath, threadId, messageId: assistantId, streamId, citations: context.citations }
         },
         streamByDoc: { ...state.streamByDoc, [docId]: streamId },
         noticeByDoc
@@ -327,6 +333,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return { threads, streams, streamByDoc };
     });
     persistThread(meta.threadId);
+    void afterTurn(meta);
+  },
+
+  commitConcept: async (threadId, messageId, docPath, name) => {
+    const thread = get().threads[threadId];
+    const message = thread?.messages.find((entry) => entry.id === messageId);
+    if (!thread || !message) return null;
+    const inputs = wikiInputsForMessage(thread, message, docPath, [name]);
+    if (inputs.length === 0) return null;
+    const results = await useLinksStore.getState().link(inputs);
+    return results?.[0]?.concept?.id ?? null;
   },
 
   handleError: ({ streamId, error }) => {
@@ -341,6 +358,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (meta) persistThread(meta.threadId);
   }
 }));
+
+/** Once an answer is complete: commit the turn's [[links]] and look for related passages elsewhere. */
+async function afterTurn(meta: StreamMeta): Promise<void> {
+  const graph = useSettingsStore.getState().settings?.graph;
+  const thread = useChatStore.getState().threads[meta.threadId];
+  if (!thread) return;
+  try {
+    const inputs = wikiInputsForTurn(thread, meta.messageId, meta.docPath, graph?.commitModelWikiLinks === true);
+    if (inputs.length > 0) await useLinksStore.getState().link(inputs);
+  } catch {
+    // Linking is a convenience; a failure must not disturb the chat.
+  }
+  if (graph?.relatedSuggestions === false || !window.api?.rag?.search) return;
+  const index = thread.messages.findIndex((message) => message.id === meta.messageId);
+  const answer = thread.messages[index];
+  const question = thread.messages.slice(0, index).reverse().find((message) => message.role === "user");
+  if (!answer || !stripThink(answer.content).trim()) return;
+  try {
+    const result = await window.api.rag.search({
+      text: buildRelatedQuery(question?.content ?? "", question?.quote?.text, answer.content),
+      excludeDocPaths: [meta.docPath],
+      topK: 6,
+      perDoc: 2,
+      minScore: graph?.relatedMinScore ?? 0.6
+    });
+    const related = pickRelated(result.retrieved, answer.citations ?? []);
+    if (related.length === 0) return;
+    useChatStore.setState((state) => {
+      const current = state.threads[meta.threadId];
+      if (!current) return {};
+      return {
+        threads: {
+          ...state.threads,
+          [meta.threadId]: {
+            ...current,
+            messages: current.messages.map((message) => (message.id === meta.messageId ? { ...message, related } : message))
+          }
+        }
+      };
+    });
+    persistThread(meta.threadId);
+  } catch {
+    // No other indexed documents, or the embedder is down: simply no suggestions.
+  }
+}
 
 export function selectActiveThread(state: ChatState, docId: string): Thread | undefined {
   const threadId = state.activeThreadByDoc[docId];

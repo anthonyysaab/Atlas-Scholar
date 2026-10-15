@@ -28,7 +28,9 @@ export type IconName =
   | "home"
   | "globe"
   | "bookmark"
-  | "chevron-down";
+  | "chevron-down"
+  | "link"
+  | "graph";
 
 const PATHS: Record<IconName, ReactNode> = {
   file: (
@@ -132,7 +134,21 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   bookmark: <path d="M19 21 12 16l-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />,
-  "chevron-down": <path d="m6 9 6 6 6-6" />
+  "chevron-down": <path d="m6 9 6 6 6-6" />,
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+    </>
+  ),
+  graph: (
+    <>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="18" cy="8" r="2.5" />
+      <circle cx="9" cy="18" r="2.5" />
+      <path d="M8.3 7.1 15.6 7.6M7 8.4l1.4 7.2M16.3 10l-5.5 6.2" />
+    </>
+  )
 };
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {

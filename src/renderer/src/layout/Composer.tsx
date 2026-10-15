@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChatScope } from "@shared/types";
 import { Icon } from "@renderer/components/Icon";
 import { openSettings, requestReindex } from "@renderer/lib/commands";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
@@ -6,6 +7,17 @@ import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/s
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { toast } from "@renderer/state/toastStore";
 import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
+import { linkSelection, openConceptGraph } from "@renderer/links/actions";
+
+const NEXT_SCOPE: Record<ChatScope, ChatScope> = { document: "extended", extended: "library", library: "document" };
+
+const SCOPE_LABELS: Record<ChatScope, string> = { document: "Doc only", extended: "Doc + outside", library: "Library" };
+
+const SCOPE_TITLES: Record<ChatScope, string> = {
+  document: "Answers use only this document. Click to also allow outside knowledge in a separate section.",
+  extended: "Answers cite this document first, then add outside knowledge separately. Click to search all your PDFs.",
+  library: "Answers search every indexed PDF and cite which one each excerpt came from. Click for this document only."
+};
 
 interface SlashCommand {
   command: string;
@@ -18,9 +30,12 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { command: "/clear", description: "Clear this thread" },
   { command: "/index", description: "Index this document" },
   { command: "/reindex", description: "Re-index this document" },
-  { command: "/scope", description: "Toggle document-only / document + outside knowledge" },
+  { command: "/scope", description: "Cycle Doc only → Doc + outside → Library (all indexed PDFs)" },
+  { command: "/library", description: "Toggle library scope: answer from all your indexed PDFs" },
   { command: "/study", description: "Toggle study mode for this thread (guided tutoring)" },
   { command: "/card", description: "Add the selected passage to flashcard generation" },
+  { command: "/link", description: "Link the selected passage to a concept or another PDF" },
+  { command: "/graph", description: "Open the concept graph" },
   { command: "/export", description: "Export thread to Markdown" },
   { command: "/settings", description: "Open settings" }
 ];
@@ -53,9 +68,11 @@ export function Composer() {
 
   useEffect(() => setMenuIndex(0), [slashQuery]);
 
-  const toggleScope = (): void => {
-    void useSettingsStore.getState().patch({ chat: { scope: scope === "document" ? "extended" : "document" } });
+  const setScope = (next: ChatScope): void => {
+    void useSettingsStore.getState().patch({ chat: { scope: next } });
   };
+
+  const toggleScope = (): void => setScope(NEXT_SCOPE[scope]);
 
   const toggleStudy = (): void => {
     if (!doc) return;
@@ -102,11 +119,20 @@ export function Composer() {
       case "scope":
         toggleScope();
         break;
+      case "library":
+        setScope(scope === "library" ? "document" : "library");
+        break;
       case "study":
         toggleStudy();
         break;
       case "card":
         addSelectionToFlashcards();
+        break;
+      case "link":
+        linkSelection();
+        break;
+      case "graph":
+        openConceptGraph({ docPath: doc.ref.path });
         break;
       case "export": {
         const threadId = useChatStore.getState().activeThreadByDoc[doc.id];
@@ -235,7 +261,13 @@ export function Composer() {
               }
             }}
             rows={1}
-            placeholder={disabled ? "Open a document to ask questions" : "Ask about this document…  / for commands, Enter to send"}
+            placeholder={
+              disabled
+                ? "Open a document to ask questions"
+                : scope === "library"
+                  ? "Ask across your PDFs…  [[concept]] to link, / for commands"
+                  : "Ask about this document…  / for commands, Enter to send"
+            }
             className="max-h-40 min-h-[28px] flex-1 resize-none bg-transparent text-sm text-text outline-none placeholder:text-text-weak disabled:cursor-not-allowed"
           />
           {streaming && doc ? (
@@ -266,14 +298,12 @@ export function Composer() {
           <button
             type="button"
             onClick={toggleScope}
-            title={
-              scope === "document"
-                ? "Answers use only the document. Click to also allow outside knowledge in a separate section."
-                : "Answers cite the document first, then add outside knowledge separately. Click for document only."
-            }
-            className="rounded border border-border px-1.5 py-px hover:text-text"
+            title={SCOPE_TITLES[scope]}
+            className={`rounded border px-1.5 py-px hover:text-text ${
+              scope === "library" ? "border-accent text-accent" : "border-border"
+            }`}
           >
-            {scope === "document" ? "Doc only" : "Doc + outside"}
+            {SCOPE_LABELS[scope]}
           </button>
           <button
             type="button"

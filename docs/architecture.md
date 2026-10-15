@@ -69,6 +69,9 @@ userData/
   index/<fileHash>.json    # vector index per document content hash
   cache/extract/<hash>.json# extracted text + chunk metadata cache
   threads/<docId>.json     # per-document chat threads
+  links.json               # 06: concepts, passages, edges, extraction review queue (app-wide)
+  flashcards.json          # decks and cards (app-wide)
+  workspace.json           # bookmarks + last session (incl. graph tab state)
   logs/
 ```
 

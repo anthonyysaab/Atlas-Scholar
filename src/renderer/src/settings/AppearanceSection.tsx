@@ -108,6 +108,7 @@ export function AppearanceSection() {
             <option value="chat">Chat</option>
             <option value="annotations">Annotations</option>
             <option value="flashcards">Cards</option>
+            <option value="links">Links</option>
             <option value="context">Context</option>
           </Select>
         </Row>

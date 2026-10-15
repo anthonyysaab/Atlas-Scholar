@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { openSettings, switchPanelTab, togglePalette, togglePanel, toggleSidebar } from "@renderer/lib/commands";
 import { openViaDialog } from "@renderer/lib/openFiles";
+import { openConceptGraph } from "@renderer/links/actions";
 import { useAppStore } from "@renderer/state/appStore";
 import { useChatStore } from "@renderer/state/chatStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
@@ -51,6 +52,21 @@ export function useKeybinds(): void {
           event.preventDefault();
           void switchPanelTab("search");
           break;
+        case "5":
+          event.preventDefault();
+          void switchPanelTab("links");
+          break;
+        case "g": {
+          event.preventDefault();
+          const app = useAppStore.getState();
+          if (app.centerView === "graph" && app.graphTabOpen) {
+            const doc = app.docs.find((entry) => entry.id === app.activeDocId);
+            if (doc) app.setActiveDoc(doc.id);
+          } else {
+            openConceptGraph();
+          }
+          break;
+        }
         case "enter": {
           event.preventDefault();
           const onChat = useSettingsStore.getState().settings?.ui.panelTab === "chat";

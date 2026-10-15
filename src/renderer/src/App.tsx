@@ -10,11 +10,14 @@ import { useDragDrop } from "@renderer/hooks/useDragDrop";
 import { useFileEvents } from "@renderer/hooks/useFileEvents";
 import { useKeybinds } from "@renderer/hooks/useKeybinds";
 import { AppShell } from "@renderer/layout/AppShell";
+import { LinkMarkerLayer } from "@renderer/links/LinkMarkerLayer";
+import { LinkPicker } from "@renderer/links/LinkPicker";
 import { OnboardingModal } from "@renderer/onboarding/OnboardingModal";
 import { CommandPalette } from "@renderer/palette/CommandPalette";
 import { registerDefaultSidePanelTabs } from "@renderer/panes/registerDefaults";
 import { useSession } from "@renderer/session/session";
 import { SettingsModal } from "@renderer/settings/SettingsModal";
+import { ensureLinksSubscription } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { ThemeProvider } from "@renderer/theme/ThemeProvider";
 
@@ -33,6 +36,8 @@ export function App() {
   }, [load]);
 
   useEffect(() => installCitationJumpListener(), []);
+
+  useEffect(() => ensureLinksSubscription(), []);
 
   useEffect(() => {
     if (!settings || onboardingChecked.current) return;
@@ -78,7 +83,9 @@ export function App() {
         <CommandPalette />
         <ModelPalette />
         <HighlightLayer />
+        <LinkMarkerLayer />
         <SettingsModal />
+        <LinkPicker />
         {onboarding ? (
           <OnboardingModal status={onboarding} open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
         ) : null}

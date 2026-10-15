@@ -51,7 +51,13 @@ Tabs, in order:
 1. **Chat** (default, always available)
    - Transcript of the current thread; streaming assistant messages.
    - Each assistant message may show **citation chips**; clicking one scrolls the document pane
-     to that page/chunk and briefly highlights it.
+     to that page/chunk and briefly highlights it. In Library scope a chip names its document
+     (`[1] M1_ML1 p.12`) and opens that PDF at the page.
+   - `[[concept]]` in a message renders as a **concept chip**: solid when the concept is in the
+     graph (click → Links tab), dashed "ghost" when the model suggested it (click → add it, anchored
+     to the cited excerpts in the same paragraph).
+   - Under an answer, **Related in your other PDFs** lists matching passages elsewhere; click opens
+     the PDF at the page, the link button attaches it to a concept or to the highlighted passage.
    - **Composer at the bottom of this tab** (the ask bubble; see below).
    - Thread switcher (per-document threads) and a compact model button that opens the `/models`
      palette (D16).
@@ -61,17 +67,42 @@ Tabs, in order:
    - Click → jump to location; edit note inline; delete.
    - "Add comment to selection" echoes the document-pane selection.
 
-3. **Context** (analog of opencode's context tab)
+3. **Links** (06-concept-graph)
+   - Compact local graph of the open document (depth 1: its concepts and where else they appear;
+     depth 2: one more concept hop), "Open full graph".
+   - Concepts in this document, each expandable to rename, note, merge, delete, and its passages
+     grouped by document (click → open at page; × unlinks).
+   - Passage↔passage links, then the **review queue** of extracted concepts (edit name, join an
+     existing concept, accept / reject / merge, bulk actions, extraction progress and Cancel/Resume).
+
+4. **Context** (analog of opencode's context tab)
    - Document map: outline / page list.
    - **Index status**: not indexed / indexing (progress) / ready (chunk count, embed model).
    - **Token usage** of the current thread and the last retrieval.
    - Buttons: Re-index, Change embedding model.
+   - "Extract concepts when indexing" toggle and extraction progress.
 
-4. **Search** — in-app browser (D15)
+5. **Search** — in-app browser (D15)
    - Embedded `WebContentsView` browser with back/forward/reload/home and an address/search bar.
    - A non-URL query searches DuckDuckGo `?q=…` in-view; results are **not** opened in the OS browser.
    - The browser view is hidden automatically while a modal/overlay is open or the panel is
      collapsed (a `WebContentsView` composites above the DOM).
+
+(Bookmarks and Cards tabs sit between Annotations and Links.)
+
+**Concept graph (centre tab).** `Ctrl+G` (or `/graph`, the palette, the Links tab) opens a
+trailing "Graph" tab next to the document tabs. It overlays the document pane (the viewer stays
+mounted underneath) and shows an Obsidian-style force-directed graph: concepts are labelled
+circles, passages are small squares coloured by document, `related` links are dashed. Pan by
+dragging the background, zoom with the wheel, drag nodes (Shift-drop pins). Click selects
+(neighbourhood highlighted, detail card on the right), double-click a concept to focus its 2-hop
+neighbourhood, double-click a passage to open it. Toolbar: concept search, document legend
+toggles, "Concepts only", Fit.
+
+**Selection toolbar.** Selecting PDF text shows `Highlight ⏎H | Link… L`. Link opens the link
+picker (concepts by fuzzy search or "Create …", plus semantically similar passages in other
+PDFs). Linked passages are underlined (dashed) in the PDF; clicking the underline lists their
+concepts and linked passages.
 
 Tabs mirror opencode's `review` + `context` tabs in *behavior* (panels toggle-able, closable
 where sensible), not in code.
@@ -101,7 +132,9 @@ Located at the bottom of the **Chat** tab (not the document pane).
   - `Ctrl+P` command palette
   - `Ctrl+B` toggle sidebar
   - `Ctrl+J` toggle side panel
-  - `Ctrl+1/2/3/4` Chat / Annotations / Context / Search
+  - `Ctrl+1/2/3/4/5` Chat / Annotations / Context / Search / Links
+  - `Ctrl+G` toggle the concept graph tab
+  - `L` (with a PDF selection) link the selection; `H` highlight it
   - `Ctrl+Enter` send message (focuses the Chat tab first if needed)
   - `Ctrl+F` find in document
   - `Ctrl+S` save (text files)

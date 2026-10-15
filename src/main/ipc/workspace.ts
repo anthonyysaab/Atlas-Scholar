@@ -47,7 +47,13 @@ function parseSessionInput(value: unknown): WorkspaceSession {
     ? record["docs"].filter((entry): entry is string => typeof entry === "string")
     : [];
   const activeDocPath = asString(record["activeDocPath"]) ?? null;
-  return { docs, activeDocPath, positions: parsePositions(record["positions"]) };
+  return {
+    docs,
+    activeDocPath,
+    positions: parsePositions(record["positions"]),
+    ...(record["graphOpen"] === true ? { graphOpen: true } : {}),
+    ...(record["graphActive"] === true ? { graphActive: true } : {})
+  };
 }
 
 let store: WorkspaceStore | null = null;

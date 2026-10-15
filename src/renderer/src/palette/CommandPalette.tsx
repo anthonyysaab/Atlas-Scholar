@@ -15,6 +15,7 @@ import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { selectActiveThread, useChatStore } from "@renderer/state/chatStore";
 import { toast } from "@renderer/state/toastStore";
 import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
+import { linkSelection, openConceptGraph, startConceptExtraction } from "@renderer/links/actions";
 import { useUpdateStore } from "@renderer/state/updateStore";
 import { THEMES } from "@renderer/theme/themes";
 
@@ -42,6 +43,17 @@ export function CommandPalette() {
       { id: "flashcards", label: "Switch to Flashcards", run: () => void switchPanelTab("flashcards") },
       { id: "card", label: "Add selection to flashcards (/card)", run: () => addSelectionToFlashcards() },
       { id: "context", label: "Switch to Context", run: () => void switchPanelTab("context") },
+      { id: "links", label: "Switch to Links (Ctrl+5)", run: () => void switchPanelTab("links") },
+      { id: "graph", label: "Open concept graph (Ctrl+G)", run: () => openConceptGraph() },
+      { id: "link", label: "Link selection to a concept or passage… (L, /link)", run: () => linkSelection() },
+      {
+        id: "extract",
+        label: "Extract concepts from this document",
+        run: () => {
+          const doc = selectActiveDoc(useAppStore.getState());
+          if (doc) void startConceptExtraction(doc.ref.path);
+        }
+      },
       { id: "search", label: "Switch to Search", run: () => void switchPanelTab("search") },
       { id: "theme", label: "Cycle theme", run: () => void cycleTheme() },
       ...Object.values(THEMES).map((theme) => ({
