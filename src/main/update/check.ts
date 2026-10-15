@@ -31,6 +31,16 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** The release asset this platform's updater can launch; Linux has none (AppImage needs chmod, deb needs root). */
+export function installerPattern(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch
+): RegExp | null {
+  if (platform === "win32") return /setup\.exe$/i;
+  if (platform === "darwin") return new RegExp(`-${arch}\\.dmg$`, "i");
+  return null;
+}
+
 function noUpdate(current: string): UpdateInfo {
   return { current, latest: null, available: false, releaseUrl: RELEASES_PAGE, installerUrl: null };
 }
@@ -51,11 +61,12 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 
     const releaseUrl = asString(payload?.["html_url"]) ?? RELEASES_PAGE;
     let installerUrl: string | null = null;
-    for (const asset of asArray(payload?.["assets"])) {
+    const pattern = installerPattern();
+    for (const asset of pattern ? asArray(payload?.["assets"]) : []) {
       const record = asRecord(asset);
       const name = asString(record?.["name"]);
       const url = asString(record?.["browser_download_url"]);
-      if (name && url && /setup\.exe$/i.test(name)) {
+      if (name && url && pattern?.test(name)) {
         installerUrl = url;
         break;
       }
@@ -76,8 +87,10 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 /** Download the latest installer asset to a temp file and launch it (the user finishes the update). */
 export async function downloadAndInstallUpdate(): Promise<void> {
   const info = await checkForUpdate();
-  if (!info.available || !info.installerUrl) {
-    throw new Error("No update is available to install.");
+  if (!info.available) throw new Error("No update is available to install.");
+  if (!info.installerUrl) {
+    await shell.openExternal(info.releaseUrl);
+    return;
   }
   const response = await fetch(info.installerUrl, {
     headers: { "User-Agent": USER_AGENT },

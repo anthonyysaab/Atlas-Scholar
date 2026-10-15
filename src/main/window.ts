@@ -16,6 +16,7 @@ export function createMainWindow(): BrowserWindow {
     // The renderer draws a themed title bar; Windows keeps native caption buttons via the overlay.
     titleBarStyle: "hidden",
     titleBarOverlay: titleBarOverlay(),
+    trafficLightPosition: { x: 12, y: 10 },
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

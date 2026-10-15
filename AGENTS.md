@@ -76,6 +76,9 @@ is the whole app; the numbered folders are plans, the app lives at the root):
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)
 - Package: `npm run package` (electron-vite build + electron-builder NSIS x64 → `release/`)
   - Installer: `release/Reading Assistant-<version>-setup.exe`; unpacked app: `release/win-unpacked/`
+  - macOS/Linux: `npm run package:mac` / `npm run package:linux` need a native host; the
+    `.github/workflows/release.yml` workflow builds both on `v*` tags and attaches them to the
+    release (mac: unsigned ad-hoc dmg/zip, arm64 + x64; linux: AppImage/deb/tar.gz x64).
   - `electron-builder.yml` pins `appId=com.readingassistant.app`, `productName=Reading Assistant`, `build/icon.ico`.
 
 ## Workstream AGENTS.md template

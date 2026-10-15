@@ -24,7 +24,8 @@ export function applyTitleBarTheme(pref: string): void {
   const theme = activeTheme();
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
-    window.setTitleBarOverlay(titleBarOverlay(theme));
+    // macOS draws traffic lights instead of an overlay, and has no setTitleBarOverlay.
+    if (process.platform !== "darwin") window.setTitleBarOverlay(titleBarOverlay(theme));
     window.setBackgroundColor(windowBackground(theme));
   }
 }

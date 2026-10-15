@@ -7,9 +7,12 @@ vi.mock("electron", () => ({
   shell: { openPath: vi.fn(async () => "") }
 }));
 
-import { checkForUpdate, compareVersions } from "./check";
+import { checkForUpdate, compareVersions, installerPattern } from "./check";
+
+const realPlatform = process.platform;
 
 afterEach(() => {
+  Object.defineProperty(process, "platform", { value: realPlatform });
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -25,6 +28,7 @@ describe("compareVersions", () => {
 
 describe("checkForUpdate", () => {
   it("reports an available update and picks the setup asset", async () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
     appMock.getVersion.mockReturnValue("0.1.0");
     vi.stubGlobal(
       "fetch",
@@ -51,6 +55,13 @@ describe("checkForUpdate", () => {
       available: true,
       installerUrl: "https://dl/setup.exe"
     });
+  });
+
+  it("matches each platform's installer asset", () => {
+    expect(installerPattern("win32", "x64")?.test("Reading Assistant-0.6.0-setup.exe")).toBe(true);
+    expect(installerPattern("darwin", "arm64")?.test("Reading Assistant-0.6.0-arm64.dmg")).toBe(true);
+    expect(installerPattern("darwin", "arm64")?.test("Reading Assistant-0.6.0-x64.dmg")).toBe(false);
+    expect(installerPattern("linux", "x64")).toBeNull();
   });
 
   it("reports no update when the running version is the latest", async () => {

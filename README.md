@@ -10,12 +10,33 @@ The layout mirrors OpenCode's desktop app; none of its code is reused.
 
 ## Download
 
-Windows builds are on the [Releases page](../../releases/latest):
+Builds are on the [Releases page](../../releases/latest).
+
+**Windows**
 
 - `Reading.Assistant-<version>-setup.exe` — installer
 - `Reading.Assistant-<version>-portable.exe` — single file, nothing to install
 
-The app checks GitHub Releases for updates on its own.
+**macOS** (Apple Silicon: `arm64`, Intel: `x64`)
+
+- `Reading.Assistant-<version>-<arch>.dmg` — open it and drag the app into Applications
+- `Reading.Assistant-<version>-<arch>.zip` — the bare `.app`
+
+The app is not notarized, so the first launch is blocked. Open **System Settings → Privacy &
+Security** and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine "/Applications/Reading Assistant.app"`.
+
+**Linux** (x64)
+
+- `Reading.Assistant-<version>-x86_64.AppImage` — `chmod +x` it and run it (needs `libfuse2`)
+- `Reading.Assistant-<version>-amd64.deb` — `sudo apt install ./Reading.Assistant-*.deb`
+- `Reading.Assistant-<version>-x64.tar.gz` — unpack and run `reading-assistant`
+
+On Ubuntu 24.04 and later, AppArmor can stop the AppImage's sandbox from starting; use the
+`.deb`, or launch the AppImage with `--no-sandbox`.
+
+The app checks GitHub Releases for updates on its own. On Windows and macOS it downloads and opens
+the new installer; on Linux it opens the release page.
 
 ## What it does
 
@@ -71,7 +92,13 @@ npm run test:e2e   # end-to-end tests (Playwright)
 npm run typecheck
 npm run lint
 npm run package    # Windows installer and portable exe into release/
+npm run package:mac    # dmg + zip (run on a Mac)
+npm run package:linux  # AppImage, deb, tar.gz (run on Linux; only tar.gz builds on Windows)
 ```
+
+The `Release (macOS + Linux)` GitHub Actions workflow builds the macOS and Linux packages on every
+`v*` tag and attaches them to that release. You can also run it by hand from the Actions tab and
+give it an existing tag.
 
 ## How it is built
 

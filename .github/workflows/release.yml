@@ -1,0 +1,74 @@
+name: Release (macOS + Linux)
+
+# Windows builds are packaged locally (npm run package); macOS and Linux need their own runners.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the builds to (blank = build artifacts only)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            files: |
+              release/*.dmg
+              release/*.zip
+          - os: ubuntu-latest
+            platform: linux
+            files: |
+              release/*.AppImage
+              release/*.deb
+              release/*.tar.gz
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check the tag matches package.json
+        if: env.TAG != ''
+        shell: bash
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::package.json is $version but the tag is $TAG"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-vite build
+      - run: npx electron-builder --${{ matrix.platform }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reading-assistant-${{ matrix.platform }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+      - name: Attach to GitHub release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "Reading Assistant $TAG" --notes "" \
+            || true
+          shopt -s nullglob
+          files=(release/*.dmg release/*.zip release/*.AppImage release/*.deb release/*.tar.gz)
+          gh release upload "$TAG" "${files[@]}" --clobber
