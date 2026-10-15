@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatRequest, LibrarySearchInput, LinkInput, RagQueryInput, RagQueryResult, Settings } from "@shared/types";
+import type {
+  ChatRequest,
+  LibrarySearchInput,
+  LinkInput,
+  OpenDoc,
+  RagQueryInput,
+  RagQueryResult,
+  Settings,
+  Thread
+} from "@shared/types";
 import { splitThink } from "@renderer/chat/think";
+import { useAppStore } from "./appStore";
 import { toChatMessage, useChatStore } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 
@@ -89,6 +99,60 @@ describe("chatStore.toggleStudy", () => {
     useChatStore.getState().setActiveThread("doc", first);
     useChatStore.getState().toggleStudy("doc");
     expect(useChatStore.getState().threads[first]?.study).toBeUndefined();
+  });
+});
+
+describe("chatStore thread persistence", () => {
+  const path = "C:\\Docs\\cours.pdf";
+  const saved: Thread[] = [
+    { id: "old", docId: "dead-tab", docPath: path, title: "Old", updatedAt: "2026-01-02T00:00:00.000Z", messages: [] },
+    { id: "new", docId: "dead-tab", docPath: path, title: "New", updatedAt: "2026-01-05T00:00:00.000Z", messages: [] }
+  ];
+
+  it("restores every saved thread of the document into the new tab, most recent active", async () => {
+    const loads: string[] = [];
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["threads"] = {
+      save: async () => undefined,
+      load: async (docPath: string) => {
+        loads.push(docPath);
+        return saved;
+      }
+    };
+    useChatStore.setState({ hydratedDocs: {} });
+
+    await Promise.all([useChatStore.getState().hydrate("tab-2", path), useChatStore.getState().hydrate("tab-2", path)]);
+
+    const state = useChatStore.getState();
+    expect(loads).toEqual([path]);
+    expect(state.threadIdsByDoc["tab-2"]).toEqual(["old", "new"]);
+    expect(state.activeThreadByDoc["tab-2"]).toBe("new");
+    expect(state.threads["old"]?.docId).toBe("tab-2");
+    expect(state.ensureActiveThread("tab-2")).toBe("new");
+  });
+
+  it("saves new threads under the tab's document path and deletes any thread by path and id", async () => {
+    const savedThreads: Thread[] = [];
+    const removed: [string, string][] = [];
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["threads"] = {
+      save: async (thread: Thread) => {
+        savedThreads.push(thread);
+      },
+      remove: async (docPath: string, threadId: string) => {
+        removed.push([docPath, threadId]);
+      }
+    };
+    useAppStore.setState({ docs: [{ id: "tab-3", ref: { path, name: "cours.pdf" }, kind: "pdf", dirty: false } as OpenDoc] });
+
+    const first = useChatStore.getState().newThread("tab-3");
+    useChatStore.getState().toggleStudy("tab-3");
+    expect(savedThreads[0]).toMatchObject({ id: first, docPath: path, study: true });
+
+    const second = useChatStore.getState().newThread("tab-3");
+    useChatStore.getState().deleteThread("tab-3", first);
+    expect(removed).toEqual([[path, first]]);
+    expect(useChatStore.getState().activeThreadByDoc["tab-3"]).toBe(second);
   });
 });
 

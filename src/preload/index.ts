@@ -135,9 +135,9 @@ const providersApi: Api["providers"] = {
 
 const threadsApi: Api["threads"] = {
   save: (thread: Thread) => invoke<void>(IPC.threads.save, thread),
-  load: (docId) => invoke<Thread | null>(IPC.threads.load, docId),
+  load: (docPath) => invoke<Thread[]>(IPC.threads.load, docPath),
   list: () => invoke<Thread[]>(IPC.threads.list),
-  remove: (docId) => invoke<void>(IPC.threads.remove, docId),
+  remove: (docPath, threadId) => invoke<void>(IPC.threads.remove, docPath, threadId),
   exportMarkdown: (thread: Thread) => invoke<string | null>(IPC.threads.export, thread)
 };
 

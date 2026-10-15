@@ -13,6 +13,7 @@ const EMPTY: string[] = [];
 export function ChatTab() {
   const doc = useAppStore(selectActiveDoc);
   const docId = doc?.id;
+  const docPath = doc?.ref.path;
   const hydrate = useChatStore((state) => state.hydrate);
   const ensureActiveThread = useChatStore((state) => state.ensureActiveThread);
   const newThread = useChatStore((state) => state.newThread);
@@ -27,9 +28,9 @@ export function ChatTab() {
   const activeModel = useSettingsStore((state) => state.settings?.activeChatModel ?? "");
 
   useEffect(() => {
-    if (!docId) return;
-    void hydrate(docId).then(() => ensureActiveThread(docId));
-  }, [docId, hydrate, ensureActiveThread]);
+    if (!docId || !docPath) return;
+    void hydrate(docId, docPath).then(() => ensureActiveThread(docId));
+  }, [docId, docPath, hydrate, ensureActiveThread]);
 
   if (!doc) {
     return <EmptyState title="No document open" hint="Open a file to start a grounded conversation." />;

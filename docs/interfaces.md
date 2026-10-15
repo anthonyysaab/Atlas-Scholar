@@ -394,19 +394,24 @@ interface EventsApi {
 
 ### 1.8 `ThreadsApi`
 
-Persists chat threads to `userData/threads/<docId>.json` (§5). Added by `02-providers-chat`.
+Persists chat threads per document, several per document, to
+`userData/threads/<docKey>/<threadId>.json` (§5). Added by `02-providers-chat`.
 
 ```ts
 interface ThreadsApi {
-  save(thread: Thread): Promise<void>
-  load(docId: string): Promise<Thread | null>
+  save(thread: Thread): Promise<void>                    // keyed by thread.docPath + thread.id; main stamps updatedAt
+  load(docPath: string): Promise<Thread[]>               // every saved thread of the document, oldest first
   list(): Promise<Thread[]>
-  remove(docId: string): Promise<void>
+  remove(docPath: string, threadId: string): Promise<void>
   exportMarkdown(thread: Thread): Promise<string | null>   // M5: save dialog → path, or null
 }
 ```
 
-Rename is `save(thread)` with a new `title` (the file is keyed by `docId`); delete is `remove(docId)`.
+Threads are keyed by the document's absolute path, not by the per-tab `OpenDoc.id`, so they survive a
+restart. Paths match like `samePath` (`src/shared/docLabel.ts`: Windows drive paths ignore case and
+slash direction). The renderer keeps its in-memory maps keyed by tab id: `hydrate(docId, docPath)`
+loads the document's threads, rewrites their `docId` to the tab, and activates the most recently
+updated one. Rename is `save(thread)` with a new `title`; delete is `remove(docPath, threadId)`.
 `exportMarkdown` opens a native save dialog in main and writes a Markdown rendering of the thread.
 
 ### 1.9 `UpdateApi`
@@ -697,8 +702,11 @@ interface OpenDoc {
 
 interface Thread {
   id: string
-  docId: string
+  docId: string                 // the tab showing it (OpenDoc.id); in-memory only, rewritten on load
+  docPath: string               // absolute document path; the persistence key
   title: string
+  createdAt?: string            // ISO; orders a document's threads
+  updatedAt?: string            // ISO; stamped by main on save; the newest is active after a restart
   study?: boolean               // study mode for this thread (absent = off); sent as RagQueryInput.study
   messages: {
     id: string
@@ -716,7 +724,11 @@ interface RelatedPassage { chunkId: string; docPath: string; docName: string; pa
 // WorkspaceSession (userData/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06).
 ```
 
-Persisted to `userData/threads/<docId>.json`.
+Persisted one file per thread to `userData/threads/<docKey>/<threadId>.json`, where `docKey` is the
+first 32 hex chars of `sha256(pathKey(docPath))` (`pathKey` lowercases Windows drive paths and unifies
+slashes). Legacy `userData/threads/<tabId>.json` files (0.5.x and earlier) were keyed by a random per-tab id
+and hold no document path, so they cannot be attributed to a document; they are left on disk and
+ignored.
 
 ---
 

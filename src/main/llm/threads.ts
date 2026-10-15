@@ -1,134 +1,30 @@
 import { app, dialog } from "electron";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Citation, RelatedPassage, SelectionQuote, Thread } from "@shared/types";
-import { asArray, asNumber, asRecord, asString, parseJson, parseRects } from "@main/providers/json";
+import type { Thread } from "@shared/types";
+import { ThreadStore } from "./threadStore";
 
-const DOC_ID_RE = /^[a-zA-Z0-9._-]+$/;
+let store: ThreadStore | null = null;
 
-function threadsDir(): string {
-  return join(app.getPath("userData"), "threads");
+function threadStore(): ThreadStore {
+  store ??= new ThreadStore(join(app.getPath("userData"), "threads"));
+  return store;
 }
 
-function threadPath(docId: string): string {
-  if (!DOC_ID_RE.test(docId)) throw new Error(`Invalid doc id: ${docId}`);
-  return join(threadsDir(), `${docId}.json`);
+export function saveThread(thread: Thread): Promise<void> {
+  return threadStore().save(thread);
 }
 
-function asRole(value: string | undefined): "user" | "assistant" | null {
-  return value === "user" || value === "assistant" ? value : null;
+export function loadThreads(docPath: string): Promise<Thread[]> {
+  return threadStore().load(docPath);
 }
 
-function parseQuote(value: unknown): SelectionQuote | undefined {
-  const record = asRecord(value);
-  const text = asString(record?.["text"]);
-  if (!text) return undefined;
-  const page = asNumber(record?.["page"]);
-  const rects = parseRects(record?.["rects"]);
-  return { text, ...(page !== undefined ? { page } : {}), ...(rects.length > 0 ? { rects } : {}) };
+export function listThreads(): Promise<Thread[]> {
+  return threadStore().list();
 }
 
-function parseCitations(value: unknown): Citation[] {
-  return asArray(value).flatMap((entry) => {
-    const record = asRecord(entry);
-    const chunkId = asString(record?.["chunkId"]);
-    const snippet = asString(record?.["snippet"]);
-    if (!chunkId || snippet === undefined) return [];
-    const page = asNumber(record?.["page"]);
-    const section = asString(record?.["section"]);
-    const docPath = asString(record?.["docPath"]);
-    const docName = asString(record?.["docName"]);
-    return [
-      {
-        chunkId,
-        snippet,
-        ...(page !== undefined ? { page } : {}),
-        ...(section ? { section } : {}),
-        ...(docPath ? { docPath } : {}),
-        ...(docName ? { docName } : {})
-      }
-    ];
-  });
-}
-
-function parseRelated(value: unknown): RelatedPassage[] {
-  return asArray(value).flatMap((entry) => {
-    const record = asRecord(entry);
-    const chunkId = asString(record?.["chunkId"]);
-    const docPath = asString(record?.["docPath"]);
-    const docName = asString(record?.["docName"]);
-    const snippet = asString(record?.["snippet"]);
-    const score = asNumber(record?.["score"]);
-    if (!chunkId || !docPath || !docName || snippet === undefined || score === undefined) return [];
-    const page = asNumber(record?.["page"]);
-    return [{ chunkId, docPath, docName, snippet, score, ...(page !== undefined ? { page } : {}) }];
-  });
-}
-
-function parseThread(value: unknown): Thread | null {
-  const record = asRecord(value);
-  const id = asString(record?.["id"]);
-  const docId = asString(record?.["docId"]);
-  const title = asString(record?.["title"]);
-  if (!id || !docId || title === undefined) return null;
-  const messages = asArray(record?.["messages"]).flatMap((entry) => {
-    const message = asRecord(entry);
-    const messageId = asString(message?.["id"]);
-    const role = asRole(asString(message?.["role"]));
-    const content = asString(message?.["content"]);
-    const createdAt = asString(message?.["createdAt"]);
-    if (!messageId || content === undefined || !createdAt || role === null) return [];
-    const quote = parseQuote(message?.["quote"]);
-    const citations = parseCitations(message?.["citations"]);
-    const related = parseRelated(message?.["related"]);
-    return [
-      {
-        id: messageId,
-        role,
-        content,
-        createdAt,
-        ...(quote ? { quote } : {}),
-        ...(citations.length > 0 ? { citations } : {}),
-        ...(related.length > 0 ? { related } : {})
-      }
-    ];
-  });
-  return { id, docId, title, ...(record?.["study"] === true ? { study: true } : {}), messages };
-}
-
-export async function saveThread(thread: Thread): Promise<void> {
-  const path = threadPath(thread.docId);
-  await mkdir(threadsDir(), { recursive: true });
-  await writeFile(path, `${JSON.stringify(thread, null, 2)}\n`, "utf8");
-}
-
-export { parseThread };
-
-export async function loadThread(docId: string): Promise<Thread | null> {
-  try {
-    return parseThread(parseJson(await readFile(threadPath(docId), "utf8")));
-  } catch {
-    return null;
-  }
-}
-
-export async function listThreads(): Promise<Thread[]> {
-  try {
-    const files = await readdir(threadsDir());
-    const threads: Thread[] = [];
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const thread = await loadThread(file.slice(0, -5));
-      if (thread) threads.push(thread);
-    }
-    return threads;
-  } catch {
-    return [];
-  }
-}
-
-export async function removeThread(docId: string): Promise<void> {
-  await rm(threadPath(docId), { force: true });
+export function removeThread(docPath: string, threadId: string): Promise<void> {
+  return threadStore().remove(docPath, threadId);
 }
 
 function safeFileName(title: string): string {

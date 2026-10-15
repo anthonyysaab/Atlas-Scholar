@@ -4,6 +4,7 @@ import { buildPromptContext } from "@renderer/chat/context";
 import { buildRelatedQuery, pickRelated } from "@renderer/chat/related";
 import { stripThink } from "@renderer/chat/think";
 import { wikiInputsForMessage, wikiInputsForTurn } from "@renderer/chat/wikiLinks";
+import { useAppStore } from "@renderer/state/appStore";
 import { useLinksStore } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 
@@ -29,7 +30,8 @@ interface ChatState {
   /** Per-document warning that the last answer was not grounded in the whole document. */
   noticeByDoc: Record<string, string>;
   clearNotice: (docId: string) => void;
-  hydrate: (docId: string) => Promise<void>;
+  /** Load the document's saved threads into tab `docId`; the most recently updated one becomes active. */
+  hydrate: (docId: string, docPath: string) => Promise<void>;
   ensureActiveThread: (docId: string) => string;
   newThread: (docId: string) => string;
   setActiveThread: (docId: string, threadId: string) => void;
@@ -74,8 +76,21 @@ export function toChatMessage(message: ThreadMessage): ChatMessage {
 
 function persistThread(threadId: string): void {
   const thread = useChatStore.getState().threads[threadId];
-  if (thread) void window.api.threads.save(thread).catch(() => undefined);
+  if (thread?.docPath) void window.api.threads.save(thread).catch(() => undefined);
 }
+
+function docPathOf(docId: string): string {
+  return useAppStore.getState().docs.find((doc) => doc.id === docId)?.ref.path ?? "";
+}
+
+function mostRecent(threads: Thread[]): Thread | undefined {
+  return threads.reduce<Thread | undefined>(
+    (best, thread) => (!best || (thread.updatedAt ?? "") >= (best.updatedAt ?? "") ? thread : best),
+    undefined
+  );
+}
+
+const hydrating = new Map<string, Promise<void>>();
 
 export const useChatStore = create<ChatState>((set, get) => ({
   threads: {},
@@ -96,23 +111,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  hydrate: async (docId) => {
-    if (get().hydratedDocs[docId]) return;
+  hydrate: (docId, docPath) => {
+    const inFlight = hydrating.get(docId);
+    if (inFlight) return inFlight;
+    if (get().hydratedDocs[docId]) return Promise.resolve();
     set((state) => ({ hydratedDocs: { ...state.hydratedDocs, [docId]: true } }));
-    try {
-      const thread = await window.api.threads.load(docId);
-      if (!thread || get().threads[thread.id]) return;
-      set((state) => ({
-        threads: { ...state.threads, [thread.id]: thread },
-        threadIdsByDoc: {
-          ...state.threadIdsByDoc,
-          [docId]: [...(state.threadIdsByDoc[docId] ?? []), thread.id]
-        },
-        activeThreadByDoc: { ...state.activeThreadByDoc, [docId]: thread.id }
-      }));
-    } catch {
-      // no persisted thread for this document yet
-    }
+    const task = (async () => {
+      let saved: Thread[];
+      try {
+        saved = await window.api.threads.load(docPath);
+      } catch {
+        return;
+      }
+      if (saved.length === 0) return;
+      set((state) => {
+        // A thread still in memory (its tab was closed and reopened) is fresher than its file.
+        const loaded = saved.map((thread) => ({ ...(state.threads[thread.id] ?? thread), docId, docPath }));
+        const known = state.threadIdsByDoc[docId] ?? [];
+        const ids = [...loaded.map((thread) => thread.id).filter((id) => !known.includes(id)), ...known];
+        const active = state.activeThreadByDoc[docId] ?? mostRecent(saved)?.id;
+        return {
+          threads: { ...state.threads, ...Object.fromEntries(loaded.map((thread) => [thread.id, thread])) },
+          threadIdsByDoc: { ...state.threadIdsByDoc, [docId]: ids },
+          activeThreadByDoc: active ? { ...state.activeThreadByDoc, [docId]: active } : state.activeThreadByDoc
+        };
+      });
+    })();
+    hydrating.set(docId, task);
+    return task.finally(() => hydrating.delete(docId));
   },
 
   ensureActiveThread: (docId) => {
@@ -123,7 +149,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newThread: (docId) => {
-    const thread: Thread = { id: newId(), docId, title: "New chat", messages: [] };
+    const thread: Thread = {
+      id: newId(),
+      docId,
+      docPath: docPathOf(docId),
+      title: "New chat",
+      createdAt: now(),
+      messages: []
+    };
     set((state) => ({
       threads: { ...state.threads, [thread.id]: thread },
       threadIdsByDoc: {
@@ -153,14 +186,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     persistThread(threadId);
   },
 
-  renameThread: (docId, threadId, title) => {
+  renameThread: (_docId, threadId, title) => {
     const trimmed = title.trim();
     const thread = get().threads[threadId];
     if (!thread || !trimmed) return;
     set((state) => ({
       threads: { ...state.threads, [threadId]: { ...thread, title: trimmed } }
     }));
-    if (get().activeThreadByDoc[docId] === threadId) persistThread(threadId);
+    persistThread(threadId);
   },
 
   toggleStudy: (docId) => {
@@ -176,7 +209,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteThread: (docId, threadId) => {
     const state = get();
-    if (!state.threads[threadId]) return;
+    const thread = state.threads[threadId];
+    if (!thread) return;
     const wasActive = state.activeThreadByDoc[docId] === threadId;
     const remaining = (state.threadIdsByDoc[docId] ?? []).filter((id) => id !== threadId);
 
@@ -197,11 +231,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeThreadByDoc
     });
 
-    if (wasActive) {
-      void window.api.threads.remove(docId).catch(() => undefined);
-      const nextActive = remaining[remaining.length - 1];
-      if (nextActive) persistThread(nextActive);
-    }
+    if (thread.docPath) void window.api.threads.remove(thread.docPath, threadId).catch(() => undefined);
   },
 
   exportThread: async (_docId, threadId) => {
@@ -249,6 +279,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...state.threads,
           [threadId]: {
             ...current,
+            docPath: current.docPath || docPath,
             title: current.messages.length === 0 ? titleFrom(trimmed) : current.title,
             messages: [...current.messages, userMessage, assistantMessage]
           }

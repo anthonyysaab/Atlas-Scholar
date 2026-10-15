@@ -372,11 +372,13 @@ export interface OnboardingApi {
   complete(choices: OnboardingChoices): Promise<Settings>;
 }
 
+/** Threads are stored per document (keyed by `docPath`), several per document. */
 export interface ThreadsApi {
   save(thread: Thread): Promise<void>;
-  load(docId: string): Promise<Thread | null>;
+  /** Every saved thread of the document, oldest first. */
+  load(docPath: string): Promise<Thread[]>;
   list(): Promise<Thread[]>;
-  remove(docId: string): Promise<void>;
+  remove(docPath: string, threadId: string): Promise<void>;
   /** Open a native save dialog and write the thread as Markdown; resolves to the path, or null if
    *  cancelled. Added by `05-polish-packaging`. */
   exportMarkdown(thread: Thread): Promise<string | null>;
@@ -527,8 +529,14 @@ export interface OpenDoc {
 
 export interface Thread {
   id: string;
+  /** The open tab this thread is shown in; in-memory only, so it is rewritten on load. */
   docId: string;
+  /** Absolute path of the document; the persistence key. */
+  docPath: string;
   title: string;
+  createdAt?: string;
+  /** Stamped by main on every save. */
+  updatedAt?: string;
   /** Study mode for this thread; absent means off. */
   study?: boolean;
   messages: {

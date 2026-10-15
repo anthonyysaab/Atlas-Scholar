@@ -44,11 +44,16 @@ export function labelsFor(paths: readonly string[]): Map<string, string> {
   return result;
 }
 
+/**
+ * One canonical spelling per file: Windows drive paths are case-insensitive, so they are
+ * lowercased and slash direction is unified; POSIX paths keep their case.
+ */
+export function pathKey(path: string): string {
+  const norm = path.replace(/\//g, "\\").replace(/\\+$/, "");
+  return /^[a-zA-Z]:\\/.test(norm) ? norm.toLowerCase() : norm;
+}
+
 /** Windows paths are case-insensitive; compare them that way so a re-typed path still matches. */
 export function samePath(a: string, b: string): boolean {
-  const norm = (value: string): string => value.replace(/\//g, "\\").replace(/\\+$/, "");
-  const left = norm(a);
-  const right = norm(b);
-  if (left === right) return true;
-  return /^[a-zA-Z]:\\/.test(left) && left.toLowerCase() === right.toLowerCase();
+  return pathKey(a) === pathKey(b);
 }
