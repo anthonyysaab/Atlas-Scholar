@@ -1,7 +1,7 @@
 {
   "name": "reading-assistant",
   "productName": "Reading Assistant",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local-first desktop reading assistant: view documents, annotate, and ask an LLM grounded in the text.",
   "private": true,
   "license": "UNLICENSED",
