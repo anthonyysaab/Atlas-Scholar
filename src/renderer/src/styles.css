@@ -156,14 +156,41 @@ body {
   }
 }
 
+/* A hairline at rest; the library widens the grab area to 10px around it, so the bar only grows
+   once the pointer has lingered (a delay keeps it from flashing as the cursor crosses panels). */
 [data-separator] {
+  position: relative;
+  flex: 0 0 1px;
+  width: 1px;
   background: var(--border);
-  transition: background var(--dur-fast) var(--ease-out);
+  outline: none;
 }
-[data-separator]:hover,
-[data-separator="hover"],
-[data-separator="active"] {
-  background: var(--accent);
+[data-separator]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  z-index: 10;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--text-weak);
+  opacity: 0;
+  transform: translateX(-50%) scaleX(0.34);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+[data-separator="hover"]::after,
+[data-separator]:focus-visible::after {
+  opacity: 0.55;
+  transform: translateX(-50%) scaleX(1);
+  transition-delay: 200ms;
+}
+[data-separator="active"]::after {
+  opacity: 0.9;
+  transform: translateX(-50%) scaleX(1);
+  transition-delay: 0ms;
 }
 
 /* Only set during programmatic collapse/expand so separator drags stay 1:1 with the cursor. */

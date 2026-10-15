@@ -11,6 +11,7 @@ import {
   type RenderTask
 } from "./pdf";
 import { BookmarkNav } from "./BookmarkNav";
+import { destinationFraction, extractLinks, resolveDestination, type PdfLink, type PdfLinkTarget } from "./pdfLinks";
 import "./pdf-viewer.css";
 import type { RendererViewProps } from "./registry";
 import { emitSelection, rectFromDisplay, registerSelectionTarget, type NormalizedRect } from "./selection";
@@ -178,16 +179,33 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
   }, [baseSize, viewportSize, fitMode, captureScaleAnchor]);
 
   const goToPage = useCallback(
-    (requested: number) => {
+    (requested: number, fraction = 0) => {
       const target = Math.min(numPages || 1, Math.max(1, requested));
       const element = pagesRef.current.get(target);
       const root = rootRef.current;
       if (!element || !root) return;
-      root.scrollTo({ top: element.offsetTop - PAGE_GAP, behavior: "smooth" });
+      root.scrollTo({ top: element.offsetTop + fraction * element.offsetHeight - PAGE_GAP, behavior: "smooth" });
       setCurrentPage(target);
       setJumpText(String(target));
     },
     [numPages]
+  );
+
+  const followLink = useCallback(
+    (target: PdfLinkTarget) => {
+      if (target.kind === "url") {
+        void window.api.file.openExternal(target.url);
+        return;
+      }
+      if (!pdf) return;
+      void (async () => {
+        const destination = await resolveDestination(pdf, target.dest);
+        if (!destination) return;
+        const page = await pdf.getPage(destination.page);
+        goToPage(destination.page, destinationFraction(page.view, page.getViewport({ scale: 1, rotation }), destination));
+      })().catch((linkError: unknown) => console.warn("PDF link could not be followed", linkError));
+    },
+    [pdf, rotation, goToPage]
   );
 
   useEffect(
@@ -318,6 +336,7 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
           baseSize={baseSize ?? { w: 612, h: 792 }}
           rootRef={rootRef}
           registerPage={registerPage}
+          onLink={followLink}
         />
       ))
     : null;
@@ -441,9 +460,10 @@ interface PdfPageProps {
   baseSize: Size;
   rootRef: RefObject<HTMLDivElement | null>;
   registerPage: (pageNumber: number, element: HTMLDivElement | null) => void;
+  onLink: (target: PdfLinkTarget) => void;
 }
 
-function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, registerPage }: PdfPageProps) {
+function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, registerPage, onLink }: PdfPageProps) {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -451,6 +471,7 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
   const renderedRotationRef = useRef<number | null>(null);
   const [active, setActive] = useState(false);
   const [measured, setMeasured] = useState<{ scale: number; rotation: number; w: number; h: number } | null>(null);
+  const [links, setLinks] = useState<{ rotation: number; items: PdfLink[] } | null>(null);
 
   useEffect(() => {
     const element = pageRef.current;
@@ -540,6 +561,21 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
     };
   }, [active, pdf, pageNumber, scale, rotation]);
 
+  const linksLoaded = links?.rotation === rotation;
+  useEffect(() => {
+    if (!active || linksLoaded) return;
+    let cancelled = false;
+    void (async () => {
+      const page = await pdf.getPage(pageNumber);
+      const annotations = await page.getAnnotations({ intent: "display" });
+      if (cancelled) return;
+      setLinks({ rotation, items: extractLinks(annotations, page.getViewport({ scale: 1, rotation })) });
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [active, linksLoaded, pdf, pageNumber, rotation]);
+
   const size =
     measured && measured.rotation === rotation
       ? { w: (measured.w * scale) / measured.scale, h: (measured.h * scale) / measured.scale }
@@ -554,6 +590,30 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
     >
       <canvas ref={canvasRef} />
       <div ref={textRef} className="ra-pdf-text" />
+      {/* Always mounted: HighlightLayer appends its own layer after React's children and must stay on top. */}
+      <div className="ra-pdf-links">
+        {linksLoaded
+          ? links.items.map((link) => (
+              <a
+                key={link.id}
+                href={link.target.kind === "url" ? link.target.url : "#"}
+                className="ra-pdf-link"
+                style={{
+                  left: `${link.x * 100}%`,
+                  top: `${link.y * 100}%`,
+                  width: `${link.w * 100}%`,
+                  height: `${link.h * 100}%`
+                }}
+                title={link.target.kind === "url" ? link.target.url : undefined}
+                aria-label={link.target.kind === "url" ? link.target.url : "Go to linked location"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onLink(link.target);
+                }}
+              />
+            ))
+          : null}
+      </div>
     </div>
   );
 }

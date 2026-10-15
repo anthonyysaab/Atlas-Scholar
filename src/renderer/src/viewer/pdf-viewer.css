@@ -69,3 +69,27 @@
 .ra-pdf .ra-pdf-text br::selection {
   background: transparent;
 }
+
+.ra-pdf .ra-pdf-links {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ra-pdf .ra-pdf-link {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.ra-pdf .ra-pdf-link:hover {
+  background: rgb(76 141 255 / 0.16);
+}
+
+.ra-pdf .ra-pdf-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
