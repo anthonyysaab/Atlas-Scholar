@@ -1,7 +1,7 @@
 {
   "name": "reading-assistant",
   "productName": "Reading Assistant",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Local-first desktop reading assistant: view documents, annotate, and ask an LLM grounded in the text.",
   "private": true,
   "license": "UNLICENSED",
@@ -19,7 +19,9 @@
     "test:watch": "vitest",
     "test:e2e": "electron-vite build && playwright test",
     "icons": "node scripts/generate-icons.mjs",
-    "package": "electron-vite build && electron-builder --win"
+    "package": "electron-vite build && electron-builder --win",
+    "package:mac": "electron-vite build && electron-builder --mac",
+    "package:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
