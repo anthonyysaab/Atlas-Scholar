@@ -60,7 +60,7 @@ function encodePng(width, height, pixels) {
 function roundedRect(x, y, x0, y0, x1, y1, r) {
   const cx = Math.min(Math.max(x, x0 + r), x1 - r);
   const cy = Math.min(Math.max(y, y0 + r), y1 - r);
-  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r || (x >= x0 && x <= x1 && y >= y0 && y <= y1);
+  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 }
 
 function inRect(x, y, x0, y0, x1, y1) {
@@ -73,53 +73,16 @@ function inCircle(x, y, cx, cy, r) {
 
 // --- drawing ----------------------------------------------------------------------------------
 
-const TILE = { r: 0x15, g: 0x17, b: 0x1b, a: 1 };
-const PAGE = { r: 0xee, g: 0xf1, b: 0xf4, a: 1 };
-const LINE = { r: 0xb0, g: 0xb8, b: 0xc2, a: 1 };
-const HIGHLIGHT = { r: 0xff, g: 0xe0, b: 0x66, a: 0.9 };
-const BUBBLE = { r: 0x4c, g: 0x8d, b: 0xff, a: 1 };
-const DOT = { r: 0xff, g: 0xff, b: 0xff, a: 1 };
-
-function over(dst, src) {
-  const a = src.a + dst.a * (1 - src.a);
-  if (a <= 0) return { r: 0, g: 0, b: 0, a: 0 };
-  return {
-    r: (src.r * src.a + dst.r * dst.a * (1 - src.a)) / a,
-    g: (src.g * src.a + dst.g * dst.a * (1 - src.a)) / a,
-    b: (src.b * src.a + dst.b * dst.a * (1 - src.a)) / a,
-    a
-  };
-}
+// "Page and voice": a square page and a circular voice on a paper tile; where they overlap is
+// knocked back to paper (even-odd), the document and the conversation sharing one space.
+const PAPER = { r: 0xf3, g: 0xef, b: 0xe6, a: 1 };
+const INK = { r: 0x15, g: 0x17, b: 0x1b, a: 1 };
 
 function sample(x, y, N) {
-  // Painter's order: tile, page, text lines, highlighter, chat bubble, bubble dots.
-  let c = { r: 0, g: 0, b: 0, a: 0 };
-
-  if (roundedRect(x, y, 0, 0, N, N, 0.22 * N)) c = over(c, TILE);
-
-  const page = roundedRect(x, y, 0.2 * N, 0.14 * N, 0.66 * N, 0.86 * N, 0.055 * N);
-  if (page) c = over(c, PAGE);
-
-  if (roundedRect(x, y, 0.245 * N, 0.375 * N, 0.62 * N, 0.465 * N, 0.02 * N)) c = over(c, HIGHLIGHT);
-
-  const lines = [
-    { y: 0.28, w: 0.32 },
-    { y: 0.4, w: 0.32 },
-    { y: 0.52, w: 0.32 },
-    { y: 0.64, w: 0.2 }
-  ];
-  for (const line of lines) {
-    if (inRect(x, y, 0.27 * N, line.y * N, (0.27 + line.w) * N, line.y * N + 0.04 * N)) {
-      c = over(c, LINE);
-    }
-  }
-
-  if (roundedRect(x, y, 0.55 * N, 0.58 * N, 0.9 * N, 0.86 * N, 0.1 * N)) c = over(c, BUBBLE);
-  for (const dx of [0.635, 0.7, 0.765]) {
-    if (inCircle(x, y, dx * N, 0.72 * N, 0.026 * N)) c = over(c, DOT);
-  }
-
-  return c;
+  if (!roundedRect(x, y, 0, 0, N, N, 0.22 * N)) return { r: 0, g: 0, b: 0, a: 0 };
+  const page = inRect(x, y, 0.18 * N, 0.18 * N, 0.62 * N, 0.7 * N);
+  const voice = inCircle(x, y, 0.6 * N, 0.58 * N, 0.24 * N);
+  return page !== voice ? INK : PAPER;
 }
 
 function render(size) {
