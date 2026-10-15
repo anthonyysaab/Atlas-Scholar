@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useAppStore } from "@renderer/state/appStore";
 import { NO_BOOKMARKS, useBookmarkStore } from "@renderer/state/bookmarkStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
@@ -22,6 +22,11 @@ interface Size {
 
 type FitMode = "free" | "width" | "page";
 
+interface ScrollAnchor {
+  page: number;
+  fraction: number;
+}
+
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 6;
 const PAGE_GAP = 16;
@@ -36,6 +41,8 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const pendingRestore = useRef<{ path: string; page: number } | null>(null);
+  const scaleAnchor = useRef<ScrollAnchor | null>(null);
+  const restoredAnchor = useRef<{ anchor: ScrollAnchor; scrollTop: number } | null>(null);
 
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -127,14 +134,48 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
     return () => observer.disconnect();
   }, []);
 
+  // Every page resizes with the scale while scrollTop stays fixed, so without this the text under
+  // the reader slides away (pages deep into a document) whenever a panel is dragged or toggled.
+  const captureScaleAnchor = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    // scrollTop snaps to device pixels, so re-measuring after every step of a drag would let the
+    // rounding error accumulate; reuse the last anchor until the reader actually scrolls.
+    const restored = restoredAnchor.current;
+    if (restored && Math.abs(root.scrollTop - restored.scrollTop) < 1) {
+      scaleAnchor.current = restored.anchor;
+      return;
+    }
+    const top = root.getBoundingClientRect().top;
+    let anchor: ScrollAnchor | null = null;
+    pagesRef.current.forEach((element, pageNumber) => {
+      const box = element.getBoundingClientRect();
+      if (box.bottom <= top || box.height === 0 || (anchor && anchor.page < pageNumber)) return;
+      anchor = { page: pageNumber, fraction: (top - box.top) / box.height };
+    });
+    scaleAnchor.current = anchor;
+  }, []);
+
+  useLayoutEffect(() => {
+    const anchor = scaleAnchor.current;
+    scaleAnchor.current = null;
+    const root = rootRef.current;
+    const element = anchor ? pagesRef.current.get(anchor.page) : undefined;
+    if (!anchor || !root || !element) return;
+    const box = element.getBoundingClientRect();
+    root.scrollTop += box.top + anchor.fraction * box.height - root.getBoundingClientRect().top;
+    restoredAnchor.current = { anchor, scrollTop: root.scrollTop };
+  }, [scale]);
+
   useEffect(() => {
     if (!baseSize || viewportSize.w === 0 || fitMode === "free") return;
     const availW = Math.max(1, viewportSize.w - 2 * PAGE_GAP - 8);
     const availH = Math.max(1, viewportSize.h - 2 * PAGE_GAP - 8);
     const next =
       fitMode === "width" ? availW / baseSize.w : Math.min(availW / baseSize.w, availH / baseSize.h);
+    captureScaleAnchor();
     setScale(clampScale(next));
-  }, [baseSize, viewportSize, fitMode]);
+  }, [baseSize, viewportSize, fitMode, captureScaleAnchor]);
 
   const goToPage = useCallback(
     (requested: number) => {
@@ -251,10 +292,14 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
     setSelection({ text, page: pageNumber });
   }, [docId, ref.path, setSelection]);
 
-  const zoom = useCallback((factor: number) => {
-    setFitMode("free");
-    setScale((current) => clampScale(current * factor));
-  }, []);
+  const zoom = useCallback(
+    (factor: number) => {
+      setFitMode("free");
+      captureScaleAnchor();
+      setScale((current) => clampScale(current * factor));
+    },
+    [captureScaleAnchor]
+  );
 
   const currentBookmark = bookmarks.find((bookmark) => bookmark.page === currentPage);
   const toggleBookmark = useCallback(() => {
