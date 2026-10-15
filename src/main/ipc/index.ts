@@ -4,6 +4,7 @@ import { registerDocIpc } from "./doc";
 import { registerFileIpc } from "./file";
 import { registerFlashcardsIpc } from "./flashcards";
 import { registerHealthIpc } from "./health";
+import { registerLibraryIpc, type LibraryIpcDeps } from "./library";
 import { registerLinksIpc } from "./links";
 import { registerLlmIpc } from "./llm";
 import { registerOnboardingIpc } from "./onboarding";
@@ -15,7 +16,8 @@ import { registerThreadsIpc } from "./threads";
 import { registerUpdateIpc } from "./update";
 import { registerWorkspaceIpc } from "./workspace";
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(deps: LibraryIpcDeps): void {
+  registerLibraryIpc(deps);
   registerFileIpc();
   registerSettingsIpc();
   registerProvidersIpc();

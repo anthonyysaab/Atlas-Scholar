@@ -1,6 +1,9 @@
-import { app } from "electron";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { samePath } from "@shared/docLabel";
+import { writeJsonAtomic } from "@main/library/atomic";
+import { libraryScoped } from "@main/library/context";
+import { IDENTITY_CODEC, pathMover, type PathCodec, type PathMove } from "@main/library/paths";
 import type { VectorIndex } from "./types";
 
 /**
@@ -13,6 +16,8 @@ export interface VectorStore {
   remove(contentHash: string): Promise<void>;
   findByDocPath(docPath: string): Promise<VectorIndex | null>;
   list(): Promise<VectorIndex[]>;
+  /** Re-point indexes of documents that moved (same bytes, new path). */
+  relocate(moves: readonly PathMove[]): Promise<number>;
   /** Notified after every save/remove so in-memory caches (library search) stay current. */
   onChange(listener: (change: VectorStoreChange) => void): () => void;
 }
@@ -43,68 +48,108 @@ function parseIndex(value: unknown): VectorIndex | null {
   return record as VectorIndex;
 }
 
-class FileVectorStore implements VectorStore {
-  private readonly listeners = new Set<(change: VectorStoreChange) => void>();
+export interface FileVectorStoreOptions {
+  codec?: PathCodec;
+  notify?: (change: VectorStoreChange) => void;
+}
 
-  onChange(listener: (change: VectorStoreChange) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
+/** One JSON file per content hash in `dir`; `docPath` is persisted through the codec. */
+export class FileVectorStore {
+  private readonly codec: PathCodec;
 
-  private notify(change: VectorStoreChange): void {
-    for (const listener of this.listeners) listener(change);
-  }
-
-  private dir(): string {
-    return join(app.getPath("userData"), "index");
+  constructor(
+    private readonly dir: string,
+    private readonly options: FileVectorStoreOptions = {}
+  ) {
+    this.codec = options.codec ?? IDENTITY_CODEC;
   }
 
   private path(contentHash: string): string {
-    return join(this.dir(), `${sanitizeHash(contentHash)}.json`);
+    return join(this.dir, `${sanitizeHash(contentHash)}.json`);
+  }
+
+  private decode(index: VectorIndex | null): VectorIndex | null {
+    return index ? { ...index, docPath: this.codec.fromStored(index.docPath) } : null;
   }
 
   async load(contentHash: string): Promise<VectorIndex | null> {
     try {
-      return parseIndex(JSON.parse(await readFile(this.path(contentHash), "utf8")));
+      return this.decode(parseIndex(JSON.parse(await readFile(this.path(contentHash), "utf8"))));
     } catch {
       return null;
     }
   }
 
   async save(index: VectorIndex): Promise<void> {
-    await mkdir(this.dir(), { recursive: true });
-    await writeFile(this.path(index.contentHash), JSON.stringify(index), "utf8");
-    this.notify({ type: "save", index });
+    await writeJsonAtomic(this.path(index.contentHash), { ...index, docPath: this.codec.toStored(index.docPath) }, false);
+    this.options.notify?.({ type: "save", index });
   }
 
   async remove(contentHash: string): Promise<void> {
     await rm(this.path(contentHash), { force: true });
-    this.notify({ type: "remove", contentHash });
+    this.options.notify?.({ type: "remove", contentHash });
   }
 
   async list(): Promise<VectorIndex[]> {
+    let files: string[];
     try {
-      const files = await readdir(this.dir());
-      const indexes: VectorIndex[] = [];
-      for (const file of files) {
-        if (!file.endsWith(".json")) continue;
-        try {
-          const parsed = parseIndex(JSON.parse(await readFile(join(this.dir(), file), "utf8")));
-          if (parsed) indexes.push(parsed);
-        } catch {
-          // Skip unreadable/corrupt index files rather than failing the whole listing.
-        }
-      }
-      return indexes;
+      files = await readdir(this.dir);
     } catch {
       return [];
     }
+    const indexes: VectorIndex[] = [];
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const parsed = this.decode(parseIndex(JSON.parse(await readFile(join(this.dir, file), "utf8"))));
+        if (parsed) indexes.push(parsed);
+      } catch {
+        // Skip unreadable/corrupt index files rather than failing the whole listing.
+      }
+    }
+    return indexes;
   }
 
   async findByDocPath(docPath: string): Promise<VectorIndex | null> {
-    const all = await this.list();
-    return all.find((index) => index.docPath === docPath) ?? null;
+    const matches = (await this.list()).filter((index) => samePath(index.docPath, docPath));
+    return matches.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  }
+
+  async relocate(moves: readonly PathMove[]): Promise<number> {
+    const move = pathMover(moves);
+    let moved = 0;
+    for (const index of await this.list()) {
+      const next = move(index.docPath);
+      if (next === index.docPath) continue;
+      await this.save({ ...index, docPath: next });
+      moved += 1;
+    }
+    return moved;
   }
 }
 
-export const vectorStore: VectorStore = new FileVectorStore();
+const listeners = new Set<(change: VectorStoreChange) => void>();
+
+const scopedStore = libraryScoped(
+  (ctx) =>
+    new FileVectorStore(ctx.location("index"), {
+      codec: ctx.codec,
+      notify: (change) => {
+        for (const listener of listeners) listener(change);
+      }
+    })
+);
+
+/** The open library's index store; listeners survive library switches. */
+export const vectorStore: VectorStore = {
+  load: (contentHash) => scopedStore().load(contentHash),
+  save: (index) => scopedStore().save(index),
+  remove: (contentHash) => scopedStore().remove(contentHash),
+  findByDocPath: (docPath) => scopedStore().findByDocPath(docPath),
+  list: () => scopedStore().list(),
+  relocate: (moves) => scopedStore().relocate(moves),
+  onChange: (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }
+};

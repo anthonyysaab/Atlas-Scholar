@@ -24,8 +24,17 @@ import type {
   FileRef,
   Flashcard,
   FlashcardsApi,
+  FindProgress,
   HealthReport,
+  ImportResult,
   IndexStatus,
+  LibraryApi,
+  LibraryChangedEvent,
+  LibraryFile,
+  LibraryState,
+  MigrationPlan,
+  RecentLibrary,
+  TextSearchResult,
   LibrarySearchResult,
   LinkResult,
   LinksApi,
@@ -43,6 +52,7 @@ import type {
   Thread,
   UpdateApi,
   UpdateInfo,
+  WebSelection,
   WorkspaceSession
 } from "@shared/types";
 
@@ -188,7 +198,9 @@ const browserApi: BrowserApi = {
   setBounds: (bounds: BrowserBounds) => invoke<void>(IPC.browser.setBounds, bounds),
   setVisible: (visible) => invoke<void>(IPC.browser.setVisible, visible),
   current: () => invoke<BrowserState>(IPC.browser.current),
-  onState: (cb) => subscribe<BrowserState>(IPC.browser.state, cb)
+  onState: (cb) => subscribe<BrowserState>(IPC.browser.state, cb),
+  selection: () => invoke<WebSelection>(IPC.browser.selection),
+  onSaveRequest: (cb) => subscribe<WebSelection>(IPC.browser.saveRequest, cb)
 };
 
 const workspaceApi: Api["workspace"] = {
@@ -200,7 +212,34 @@ const workspaceApi: Api["workspace"] = {
   session: {
     get: () => invoke<WorkspaceSession | null>(IPC.workspace.sessionGet),
     set: (session) => invoke<void>(IPC.workspace.sessionSet, session)
+  },
+  recent: {
+    list: () => invoke<string[]>(IPC.workspace.recentList),
+    remove: (path) => invoke<void>(IPC.workspace.recentRemove, path),
+    clear: () => invoke<void>(IPC.workspace.recentClear)
   }
+};
+
+const libraryApi: LibraryApi = {
+  state: () => invoke<LibraryState>(IPC.library.state),
+  recent: () => invoke<RecentLibrary[]>(IPC.library.recent),
+  forgetRecent: (root) => invoke<void>(IPC.library.forgetRecent, root),
+  pickFolder: (purpose) => invoke<string | null>(IPC.library.pickFolder, purpose),
+  create: (root, name) => invoke<void>(IPC.library.create, root, name),
+  open: (root, expectId) => invoke<void>(IPC.library.open, root, expectId),
+  files: () => invoke<LibraryFile[]>(IPC.library.files),
+  rescan: () => invoke<LibraryFile[]>(IPC.library.rescan),
+  import: (paths, folder) => invoke<ImportResult[]>(IPC.library.import, paths, folder),
+  importDialog: (folder) => invoke<ImportResult[]>(IPC.library.importDialog, folder),
+  reveal: (path) => invoke<void>(IPC.library.reveal, path),
+  outsideWithData: () => invoke<string[]>(IPC.library.outsideWithData),
+  migration: {
+    plan: (root) => invoke<MigrationPlan>(IPC.library.migrationPlan, root),
+    run: (root, choices) => invoke<void>(IPC.library.migrationRun, root, choices)
+  },
+  findText: (input) => invoke<TextSearchResult>(IPC.library.findText, input),
+  onChanged: (cb) => subscribe<LibraryChangedEvent>(IPC.library.changed, cb),
+  onFindProgress: (cb) => subscribe<FindProgress>(IPC.library.findProgress, cb)
 };
 
 const flashcardsApi: FlashcardsApi = {
@@ -262,7 +301,8 @@ const api: Api = {
   browser: browserApi,
   workspace: workspaceApi,
   flashcards: flashcardsApi,
-  links: linksApi
+  links: linksApi,
+  library: libraryApi
 };
 
 contextBridge.exposeInMainWorld("api", api);

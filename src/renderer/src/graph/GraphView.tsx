@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fuzzyScoreAny } from "@shared/fuzzy";
 import { samePath, shortDocLabel } from "@shared/docLabel";
+import { isWebUrl } from "@shared/webPassage";
 import { Icon } from "@renderer/components/Icon";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { ConceptDetail } from "@renderer/links/ConceptDetail";
 import { conceptsOfPassage, indexGraph } from "@renderer/links/graphIndex";
 import { openPassage } from "@renderer/lib/openPassage";
@@ -82,6 +84,7 @@ export function GraphView() {
       docPath: node.docPath,
       ...(node.page !== undefined ? { page: node.page } : {}),
       ...(passage?.rects ? { rects: passage.rects } : {}),
+      ...(node.title ? { title: node.title } : {}),
       ...(node.quote ? { text: node.quote } : {})
     });
   };
@@ -214,20 +217,23 @@ export function GraphView() {
               <div className="text-text-weak">
                 {shortDocLabel(selectedPassage.docPath)}
                 {selectedPassage.page !== undefined ? ` · p.${selectedPassage.page}` : ""}
+                {selectedPassage.title ? <div className="truncate">{selectedPassage.title}</div> : null}
               </div>
-              <p className="whitespace-pre-wrap text-text">{selectedPassage.quote}</p>
+              <MarkdownPreview content={selectedPassage.quote} className="max-h-[50vh] overflow-y-auto text-text" />
               <button
                 type="button"
                 onClick={() =>
                   void openPassage({
                     docPath: selectedPassage.docPath,
                     ...(selectedPassage.page !== undefined ? { page: selectedPassage.page } : {}),
-                    ...(selectedPassage.rects ? { rects: selectedPassage.rects } : {})
+                    ...(selectedPassage.rects ? { rects: selectedPassage.rects } : {}),
+                    ...(selectedPassage.title ? { title: selectedPassage.title } : {}),
+                    text: selectedPassage.quote
                   })
                 }
                 className="self-start rounded border border-border px-2 py-0.5 text-text hover:bg-panel"
               >
-                Open in document
+                {isWebUrl(selectedPassage.docPath) ? "Open excerpt" : "Open in document"}
               </button>
               <div className="flex flex-wrap gap-1">
                 {conceptsOfPassage(index, selectedPassage.id).map(({ concept }) => (

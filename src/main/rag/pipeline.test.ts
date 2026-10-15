@@ -26,6 +26,7 @@ vi.mock("@main/ingest/extract", () => ({
 }));
 
 import { updateSettings } from "@main/config/settings";
+import { legacyContext, setCurrentLibrary } from "@main/library/context";
 import { getStatus, indexDocument, queryDocument } from "./index";
 
 const dirs: string[] = [];
@@ -54,6 +55,7 @@ function stubEmbeddings(): void {
 
 beforeEach(async () => {
   harness.userData = await mkdtemp(join(tmpdir(), "ra-pipeline-"));
+  setCurrentLibrary(legacyContext(harness.userData));
   dirs.push(harness.userData);
   harness.pages = makePages();
   harness.text = harness.pages.map((page) => page.text).join("\n\n");

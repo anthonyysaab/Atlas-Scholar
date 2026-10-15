@@ -25,6 +25,10 @@ export async function toggleSidebar(): Promise<void> {
   await useSettingsStore.getState().patchUI({ sidebarOpen: !ui.sidebarOpen });
 }
 
+export async function openSidebar(): Promise<void> {
+  if (useSettingsStore.getState().settings?.ui.sidebarOpen === false) await useSettingsStore.getState().patchUI({ sidebarOpen: true });
+}
+
 export async function togglePanel(): Promise<void> {
   const ui = useSettingsStore.getState().settings?.ui;
   if (!ui) return;

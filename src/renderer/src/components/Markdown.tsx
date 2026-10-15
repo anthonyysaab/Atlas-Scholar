@@ -26,6 +26,8 @@ function Link({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElemen
   const onClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
+      // Quotes render inside clickable rows; following a link must not also trigger the row.
+      event.stopPropagation();
       if (href && /^https?:\/\//i.test(href)) void window.api.file.openExternal(href);
     },
     [href]

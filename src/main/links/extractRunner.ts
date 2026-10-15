@@ -24,6 +24,14 @@ interface Running {
 
 const running = new Map<string, Running>();
 
+/** Stop every extraction (the library is closing); each run records itself as cancelled. */
+export async function cancelAllExtractions(): Promise<void> {
+  const runs = [...running.values()];
+  for (const run of runs) run.controller.abort();
+  await Promise.all(runs.map((run) => run.done.catch(() => undefined)));
+  running.clear();
+}
+
 let defaults: ExtractDeps | null = null;
 
 /** Wired by the IPC layer so this module stays free of Electron imports for tests. */

@@ -29,6 +29,7 @@ exactly what to build, in what order, and how to verify it. Shared contracts liv
 | `04-rag-pipeline/` | M4 — extraction, chunking, embeddings, vector index, retrieval, citations |
 | `05-polish-packaging/` | M5 — library, threads, health checks, settings UI, installer |
 | `06-concept-graph/` | Cross-PDF concept links: Library chat scope, links store, `[[wiki-links]]`, review-gated extraction, graph view |
+| `07-library-and-search/` | Portable libraries (documents + `.assistant/` data in one folder, `lib:` paths, import, moves, migration), Find in PDF (Ctrl+F), Find in library (Ctrl+Shift+F) |
 
 ## Working order (dependency graph)
 
@@ -37,7 +38,7 @@ exactly what to build, in what order, and how to verify it. Shared contracts liv
                 ├─> 02-providers-chat ──┘
                 └─> 04-rag-pipeline ────┘ (also needs 01 for document text)
 
-02-providers-chat + 03-annotations + 04-rag-pipeline ──> 06-concept-graph
+02-providers-chat + 03-annotations + 04-rag-pipeline ──> 06-concept-graph ──> 07-library-and-search
 ```
 
 Do not start a workstream before its dependencies are done, unless you are only scaffolding
@@ -75,7 +76,9 @@ is the whole app; the numbered folders are plans, the app lives at the root):
 - Build: `npm run build` (electron-vite build → `out/{main,preload,renderer}`)
 - Typecheck: `npm run typecheck` (node + web projects, `tsc --noEmit`)
 - Lint: `npm run lint` (ESLint flat config)
-- Test: `npm test` (vitest run, 250 tests; `npm run test:watch` for watch)
+- Test: `npm test` (vitest run, 352 tests; `npm run test:watch` for watch)
+- E2E: `npm run test:e2e` (build + Playwright `_electron`; `RA_USER_DATA_DIR` and `RA_LIBRARY_DIR`
+  point the app at a throwaway profile and library folder)
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)
 - Package: `npm run package` (electron-vite build + electron-builder NSIS x64 → `release/`)
   - Installer: `release/Reading Assistant-<version>-setup.exe`; unpacked app: `release/win-unpacked/`

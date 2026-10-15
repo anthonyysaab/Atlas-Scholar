@@ -1,9 +1,10 @@
-import { app } from "electron";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtractedDoc } from "@shared/types";
 import { getFileRef } from "@main/files/service";
+import { writeJsonAtomic } from "@main/library/atomic";
+import { currentLibrary } from "@main/library/context";
 import { runExtractor } from "./router";
 
 const memory = new Map<string, ExtractedDoc>();
@@ -16,17 +17,22 @@ function safeHash(contentHash: string): string {
   return contentHash.replace(/[^a-zA-Z0-9._-]+/g, "_");
 }
 
-function cacheDir(): string {
-  return join(app.getPath("userData"), "extract");
+/** The open library's extract cache; without a library only the memory cache is used. */
+function cachePath(contentHash: string): string | null {
+  const library = currentLibrary();
+  return library ? join(library.location("extract"), `${safeHash(contentHash)}.json`) : null;
 }
 
-function cachePath(contentHash: string): string {
-  return join(cacheDir(), `${safeHash(contentHash)}.json`);
+/** The cached extraction for these bytes, without extracting (null when not cached). */
+export async function cachedExtraction(contentHash: string): Promise<ExtractedDoc | null> {
+  return memory.get(contentHash) ?? (await readDiskCache(contentHash));
 }
 
 async function readDiskCache(contentHash: string): Promise<ExtractedDoc | null> {
+  const path = cachePath(contentHash);
+  if (!path) return null;
   try {
-    const parsed = JSON.parse(await readFile(cachePath(contentHash), "utf8")) as unknown;
+    const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     const doc = parsed as ExtractedDoc;
     if (doc.contentHash !== contentHash || typeof doc.text !== "string") return null;
@@ -37,8 +43,8 @@ async function readDiskCache(contentHash: string): Promise<ExtractedDoc | null> 
 }
 
 async function writeDiskCache(doc: ExtractedDoc): Promise<void> {
-  await mkdir(cacheDir(), { recursive: true });
-  await writeFile(cachePath(doc.contentHash), JSON.stringify(doc), "utf8");
+  const path = cachePath(doc.contentHash);
+  if (path) await writeJsonAtomic(path, doc, false);
 }
 
 /** Extract a document's text, cached by content hash (memory first, then `userData/extract/`). */

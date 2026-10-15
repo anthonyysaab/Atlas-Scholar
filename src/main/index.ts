@@ -1,13 +1,18 @@
 import { app, BrowserWindow, session } from "electron";
+import { IPC } from "@shared/channels";
+import { emitToRenderer } from "@main/events";
 import { registerIpcHandlers } from "@main/ipc";
+import { initLibraryService, startLibraryService } from "@main/library/service";
 import { libraryCache } from "@main/rag/index";
 import { initTitleBarTheme } from "@main/titleBar";
 import { createMainWindow } from "@main/window";
 import { buildContentSecurityPolicy } from "@shared/csp";
 
-// Test seam: lets automated runs use a throwaway profile instead of the real userData directory.
+// Test seams: a throwaway profile instead of the real userData directory, and a library folder
+// to open (created on first use) instead of the last library.
 const userDataDir = process.env["RA_USER_DATA_DIR"];
 if (userDataDir) app.setPath("userData", userDataDir);
+const libraryDir = process.env["RA_LIBRARY_DIR"];
 
 const gotLock = app.requestSingleInstanceLock();
 
@@ -41,7 +46,15 @@ if (!gotLock) {
       });
     });
 
-    registerIpcHandlers();
+    const userData = app.getPath("userData");
+    initLibraryService({
+      userData,
+      appVersion: app.getVersion(),
+      emit: (event) => emitToRenderer(IPC.library.changed, event),
+      emitFindProgress: (progress) => emitToRenderer(IPC.library.findProgress, progress)
+    });
+    registerIpcHandlers({ userData, appVersion: app.getVersion() });
+    void startLibraryService(libraryDir);
     createMainWindow();
     initTitleBarTheme();
     // Parsing every index file takes a moment; do it before the first library query needs it.

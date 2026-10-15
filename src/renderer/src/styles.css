@@ -341,3 +341,27 @@ body {
 .ra-markdown .hljs-strong {
   font-weight: 600;
 }
+
+/* Saved text in lists and popovers: Markdown + KaTeX, tightly spaced. */
+.ra-markdown-compact .ra-markdown {
+  line-height: 1.45;
+}
+.ra-markdown-compact .ra-markdown :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0.15em 0;
+}
+.ra-markdown-compact .ra-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.2em 0;
+  font-size: 1em;
+}
+.ra-markdown-compact .ra-markdown .katex-display {
+  margin: 0.2em 0;
+  padding: 0;
+}
+.ra-clamp {
+  max-height: calc(var(--ra-clamp-lines, 2) * 1.45em);
+  overflow: hidden;
+}
+.ra-clamp-cut {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.2em), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 1.2em), transparent);
+}

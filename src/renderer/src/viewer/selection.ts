@@ -113,6 +113,38 @@ export function rectFromDisplay(rect: NormalizedRect, rotation: number): Normali
   }
 }
 
+export interface BoxLike {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Client rects as 0..1 fractions of the page box in the DISPLAYED frame, clipped to the page,
+ * with empty rects dropped. Map through `rectFromDisplay` to store them.
+ */
+export function normalizeClientRects(page: BoxLike, rects: Iterable<BoxLike>): NormalizedRect[] {
+  const width = page.right - page.left;
+  const height = page.bottom - page.top;
+  if (width <= 0 || height <= 0) return [];
+  const out: NormalizedRect[] = [];
+  for (const rect of rects) {
+    const left = Math.max(rect.left, page.left);
+    const top = Math.max(rect.top, page.top);
+    const right = Math.min(rect.right, page.right);
+    const bottom = Math.min(rect.bottom, page.bottom);
+    if (right <= left || bottom <= top) continue;
+    out.push({
+      x: (left - page.left) / width,
+      y: (top - page.top) / height,
+      w: (right - left) / width,
+      h: (bottom - top) / height
+    });
+  }
+  return out;
+}
+
 function pageRotation(pageElement: HTMLElement): number {
   const value = Number(pageElement.dataset.rotation ?? "0");
   return Number.isFinite(value) ? value : 0;

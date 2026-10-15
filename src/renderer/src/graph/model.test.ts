@@ -86,3 +86,40 @@ describe("localSubgraph", () => {
     expect(localSubgraph(graph, "C:\\other.pdf", 2).size).toBe(0);
   });
 });
+
+describe("web excerpts in the graph", () => {
+  const web: LinksGraph = {
+    ...graph,
+    passages: [
+      ...graph.passages,
+      { id: "w1", docPath: "https://fr.wikipedia.org/wiki/Cardinal", quote: "un cardinal", title: "Cardinal — Wikipédia", createdAt: at(5) },
+      { id: "w2", docPath: "https://www.fr.wikipedia.org/wiki/Ordinal", quote: "un ordinal", createdAt: at(6) },
+      { id: "w3", docPath: "https://plato.stanford.edu/entries/set-theory/", quote: "sets", createdAt: at(7) }
+    ],
+    edges: [
+      ...graph.edges,
+      { id: "w-e1", from: "cardinal", to: "w1", kind: "mentions", source: "manual", createdAt: at(5) },
+      { id: "w-e2", from: "cardinal", to: "w2", kind: "mentions", source: "manual", createdAt: at(6) },
+      { id: "w-e3", from: "cardinal", to: "w3", kind: "mentions", source: "manual", createdAt: at(7) }
+    ]
+  };
+
+  it("groups excerpts by site, each site with its own colour", () => {
+    const sites = graphDocs(web).filter((doc) => doc.web);
+    expect(sites.map((doc) => [doc.label, doc.passages, doc.colorIndex])).toEqual([
+      ["fr.wikipedia.org", 2, 3],
+      ["plato.stanford.edu", 1, 4]
+    ]);
+    const data = buildGraphData(web);
+    expect(data.nodes.find((node) => node.id === "w2")?.colorIndex).toBe(3);
+    expect(data.nodes.find((node) => node.id === "w1")?.title).toBe("Cardinal — Wikipédia");
+  });
+
+  it("hides every page of a site together", () => {
+    const data = buildGraphData(web, { hiddenDocs: new Set(["https://fr.wikipedia.org"]) });
+    const ids = data.nodes.map((node) => node.id);
+    expect(ids).not.toContain("w1");
+    expect(ids).not.toContain("w2");
+    expect(ids).toContain("w3");
+  });
+});

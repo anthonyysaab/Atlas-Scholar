@@ -34,11 +34,19 @@ interface Api {
   onboarding: OnboardingApi  // added by 05-polish-packaging
   update: UpdateApi          // check GitHub Releases for a newer build
   browser: BrowserApi        // in-app browser embedded in the Search tab (D15)
-  workspace: WorkspaceApi    // bookmarks + session snapshot (userData/workspace.json)
+  workspace: WorkspaceApi    // bookmarks, session snapshot, recent documents (<library>/.assistant/workspace.json)
   flashcards: FlashcardsApi  // §1.11
   links: LinksApi            // §1.12 cross-document concept links (06-concept-graph)
+  library: LibraryApi        // §1.13 portable libraries and Find in library (07, D19/D20)
 }
 ```
+
+> **Libraries (D19).** Every store that records documents (links, threads, annotations of library
+> documents, workspace, flashcards, index, extract cache) lives in the open library's
+> `.assistant/` folder, not in userData. Paths crossing IPC are always absolute; main converts
+> library documents to `lib:<relPath>` on disk (§7). Without an open library, library-scoped
+> calls (those stores, `rag`, `doc`) reject with `NoLibraryError`; `settings`, `providers`,
+> `onboarding`, `file`, `update`, `health` and `library` work.
 
 > **M5 additions.** `05-polish-packaging` added `Api.health` and `Api.onboarding`, `ProvidersApi.modules()`,
 > `ThreadsApi.exportMarkdown()`, the `StoredProvider`/`ProviderModuleDescriptor` types, three `ProviderInfo`
@@ -60,6 +68,11 @@ interface FileRef {
   ext: string           // lowercase, no dot, "" if none
   mime: string
   size: number
+  library?: {           // set by ref()/openDialog() while a library is open (07)
+    inLibrary: boolean
+    relPath?: string     // library documents: forward slashes, relative to the library root
+    libraryCopy?: string // outside files whose bytes are already in the library: that copy
+  }
 }
 
 interface FileApi {
@@ -67,7 +80,7 @@ interface FileApi {
   ref(path: string): Promise<FileRef>            // stat + sniff mime
   readBytes(path: string, range?: { start: number; end: number }): Promise<ArrayBuffer>
   readText(path: string): Promise<string>        // UTF-8; rejects binaries
-  writeText(path: string, text: string): Promise<void>   // text files only
+  writeText(path: string, text: string): Promise<void>   // text files only; never inside <library>/.assistant
   revealInExplorer(path: string): Promise<void>
   openExternal(path: string): Promise<void>      // "open in default app"
   watch(path: string, cb: (e: { type: "change" | "unlink" }) => void): () => void
@@ -467,7 +480,12 @@ interface BrowserApi {
   setVisible(visible: boolean): Promise<void>
   current(): Promise<BrowserState>
   onState(cb: (state: BrowserState) => void): () => void   // url/title/loading/nav changes
+  selection(): Promise<WebSelection>                        // D21: page URL, title, selected text ("" if none)
+  onSaveRequest(cb: (selection: WebSelection) => void): () => void   // the page's context menu "Save … to graph"
 }
+
+interface WebSelection { url: string; title: string; text: string }   // url without a `#:~:text=` directive;
+                                                                      // text: the selection as Markdown with $LaTeX$ math
 ```
 
 `emitToRenderer` pushes `browser:state` on navigation, in-page navigation, load start/stop, failure,
@@ -477,7 +495,7 @@ web content is never subject to the renderer's strict CSP and no renderer CSP re
 ### 1.11 `FlashcardsApi`
 
 Named decks of question/answer cards that span documents, reviewed with spaced repetition (SM-2,
-Anki-style grades; pure scheduler in `src/shared/srs.ts`). Persisted to `userData/flashcards.json`
+Anki-style grades; pure scheduler in `src/shared/srs.ts`). Persisted to `<library>/.assistant/flashcards.json`
 (versioned, temp-write + rename, writes serialized). Documents are never modified.
 
 ```ts
@@ -518,7 +536,7 @@ interface FlashcardsApi {
 
 ### 1.12 `LinksApi` (06-concept-graph)
 
-Cross-document concept links. App-wide store `userData/links.json` (§4.1), versioned, temp-write +
+Cross-document concept links. Library-wide store `<library>/.assistant/links.json` (§4.1, D19), versioned, temp-write +
 rename, writes serialized; every write bumps `revision` and emits `links:changed`. Keyed by
 `docPath` (compared case-insensitively on Windows) plus `contentHash` to flag stale passages —
 never by `OpenDoc.id`. Documents are never modified.
@@ -527,7 +545,9 @@ never by `OpenDoc.id`. Documents are never modified.
 type EdgeKind = "mentions" | "related"            // concept→passage | passage↔passage
 type LinkSource = "manual" | "chat" | "wikilink" | "extracted"
 interface Concept { id: string; name: string; aliases: string[]; note?: string; createdAt: string; updatedAt: string }
-interface PassageDraft { docPath: string; page?: number; quote: string; rects?: NormalizedRect[]; chunkId?: string }
+interface PassageDraft { docPath: string; page?: number; quote: string; rects?: NormalizedRect[]; chunkId?: string;
+                         title?: string }   // web excerpts (D21): docPath is the page URL (the source), title the page
+                                            // title; quote is the saved excerpt, paragraphs kept, ≤ 20,000 chars
 interface Passage extends PassageDraft { id: string; contentHash?: string; createdAt: string; stale?: boolean }
 interface LinkEdge { id: string; from: string; to: string; kind: EdgeKind; source: LinkSource; createdAt: string;
                      origin?: { threadId?: string; messageId?: string } }
@@ -570,6 +590,66 @@ interface LinksApi {
 //   onLinksChanged(cb: (e: { revision: number; reason: "graph" | "proposals" }) => void): () => void
 //   onExtractProgress(cb: (e: ExtractProgress) => void): () => void
 ```
+
+### 1.13 `LibraryApi` (07-library-and-search, D19/D20)
+
+```ts
+interface LibraryInfo { root: string; id: string; name: string; createdAt: string }
+interface RecentLibrary { root: string; id: string; name: string; openedAt: string }
+interface LibraryState {
+  open: LibraryInfo | null
+  missing: RecentLibrary | null      // the last library is no longer at its folder
+  legacyData: boolean                // pre-library data in userData, not migrated yet
+  openElsewhere: string[]            // other computers with this (synced) library open now
+  conflicts: string[]                // sync-conflict copies in .assistant, e.g. "links-PC.json"
+}
+interface LibraryFile { path: string; relPath: string; size: number; mtimeMs: number }
+interface LibraryChangedEvent { moves: { from: string; to: string }[]; filesChanged: boolean }
+interface MigrationDoc { path: string; state: "inside" | "outside" | "missing"; suggestCopy: boolean;
+  counts: { threads: number; passages: number; annotations: number; bookmarks: number; cards: number; indexed: boolean } }
+interface MigrationPlan { root: string; docs: MigrationDoc[]; totals: { threads: number; concepts: number;
+  passages: number; annotations: number; bookmarks: number; cards: number; decks: number; indexes: number } }
+interface MigrationChoices { name?: string; copy: string[] }    // outside documents to copy in
+interface ImportResult { from: string; path: string; existing: boolean }
+interface TextSearchResult { query: string; totalHits: number; truncated: boolean; searchedDocs: number;
+  pendingDocs: number;                                          // still being extracted
+  docs: { docPath: string; relPath: string; hits: number;
+          pages: { page: number /* 0 = no pages */; hits: number;
+                   snippets: { before: string; match: string; after: string }[] }[] }[] }
+interface FindProgress { done: number; total: number; running: boolean }
+
+interface LibraryApi {
+  state(): Promise<LibraryState>
+  recent(): Promise<RecentLibrary[]>
+  forgetRecent(root: string): Promise<void>
+  pickFolder(purpose: "create" | "open"): Promise<string | null>
+  create(root: string, name?: string): Promise<void>     // switches; the window reloads
+  open(root: string, expectId?: string): Promise<void>   // switches; expectId guards "Locate…"
+  files(): Promise<LibraryFile[]>
+  rescan(): Promise<LibraryFile[]>
+  import(paths: string[], folder?: string): Promise<ImportResult[]>   // copies; data re-pointed
+  importDialog(folder?: string): Promise<ImportResult[]>
+  reveal(path?: string): Promise<void>                   // a file, or the library folder
+  outsideWithData(): Promise<string[]>                   // outside documents carrying data
+  migration: {
+    plan(root: string): Promise<MigrationPlan>
+    run(root: string, choices: MigrationChoices): Promise<void>   // builds .assistant, switches
+  }
+  findText(input: { query: string }): Promise<TextSearchResult>   // D20
+  onChanged(cb: (e: LibraryChangedEvent) => void): () => void      // library:changed
+  onFindProgress(cb: (e: FindProgress) => void): () => void        // library:findProgress
+}
+
+// WorkspaceApi addition: recent: { list(): Promise<string[]>; remove(path): Promise<void>; clear(): Promise<void> }
+// Settings.recentFiles is deprecated: read once by the migration, no longer written.
+```
+
+Import copies to `<name>.importing-<rand>` then renames; a taken name becomes `name (2).pdf`
+(compared case-insensitively). If the library already holds the same bytes, that file is reused
+(`existing: true`). Every store is then re-pointed from the outside path to the copy
+(`relocateAll`), the outside sidecar's annotations are merged into the library (the sidecar is left
+as it is), and `library:changed` re-points open tabs. Writes that arrive late for the old path
+during the session (a reply still streaming) are redirected to the copy.
 
 Identity: concepts match on `foldConceptKey` (accents, case, a leading article and punctuation
 folded) of name and aliases; passages match on `chunkId` (unless the draft carries selection rects)
@@ -665,12 +745,12 @@ interface VectorIndex {
 }
 ```
 
-Stored at `userData/index/<fileHash>.json`. Query: cosine similarity, then MMR
+Stored at `<library>/.assistant/index/<fileHash>.json` with `docPath` in stored form (§7). Query: cosine similarity, then MMR
 (`mmrLambda` from settings) with an optional additive boost for chunks overlapping the current
 selection. `VectorStore` is an interface so a native backend can replace it later (D3/D4); it
 also exposes `onChange` so the library cache (D18) follows saves and removals.
 
-### 4.1 Links file (`userData/links.json`, 06)
+### 4.1 Links file (`<library>/.assistant/links.json`, 06/07)
 
 ```ts
 interface LinksFile {
@@ -721,12 +801,12 @@ interface Thread {
 
 interface RelatedPassage { chunkId: string; docPath: string; docName: string; page?: number; snippet: string; score: number }
 
-// WorkspaceSession (userData/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06).
+// WorkspaceSession (<library>/.assistant/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06).
 ```
 
-Persisted one file per thread to `userData/threads/<docKey>/<threadId>.json`, where `docKey` is the
-first 32 hex chars of `sha256(pathKey(docPath))` (`pathKey` lowercases Windows drive paths and unifies
-slashes). Legacy `userData/threads/<tabId>.json` files (0.5.x and earlier) were keyed by a random per-tab id
+Persisted one file per thread to `<library>/.assistant/threads/<docKey>/<threadId>.json`, where `docKey`
+is the first 32 hex chars of `sha256(pathKey(storedPath))` (`pathKey` lowercases Windows drive paths and
+`lib:` paths and unifies slashes; §7). Legacy `userData/threads/<tabId>.json` files (0.5.x and earlier) were keyed by a random per-tab id
 and hold no document path, so they cannot be attributed to a document; they are left on disk and
 ignored.
 
@@ -739,3 +819,41 @@ ignored.
 - IDs: `crypto.randomUUID()`.
 - Timestamps: ISO-8601 strings.
 - All hashes: `sha256:<hex>`.
+
+---
+
+## 7. Library on-disk format (07, D19)
+
+```
+<library>/.assistant/
+  library.json        { version: 1, id: uuid, name, createdAt, createdWith }
+  catalog.json        { version: 1, scannedAt, files: [{ relPath, size, mtimeMs, contentHash?, addedAt,
+                        importedFrom?, missingSince? }] }
+  links.json  flashcards.json  threads/<docKey>/<threadId>.json  index/<hash>.json
+  workspace.json      { version: 1, bookmarks, session, recent: string[] }
+  annotations/<docKey>.json          library documents (same shape as a D8 sidecar)
+  annotations/external/<hash>.json   outside documents whose folder is read-only
+  cache/extract/<hash>.json          ExtractedDoc cache
+  presence/<machine>.json            { machine, pid, heartbeatAt }, refreshed every minute
+  moves.journal.json                 { version: 1, startedAt, moves: [{ from, to }] } (stored form)
+  migration.json                     { version: 1, migratedAt, from, copied, totals }
+  README.txt
+userData/libraries.json              { version: 1, last, recent: RecentLibrary[], legacyMigratedTo? }
+```
+
+**Stored paths.** Every persisted document path goes through `PathCodec`
+(`src/main/library/paths.ts`, the only place `lib:` strings are built):
+- a document inside the library → `lib:<relPath>`: forward slashes, Unicode NFC, original case,
+  no `..` (a `lib:` path that would escape the library is left unresolvable);
+- anything else (outside documents, `http(s):` URLs) → verbatim.
+`toStored`/`fromStored` are idempotent. `pathKey`/`samePath` compare `lib:` paths
+case-insensitively and NFC on every OS and leave URLs alone. Per-store mappers
+(`mapLinksPaths`, `mapThreadPaths` — including other documents named by `citations[]` and
+`related[]` — `mapWorkspacePaths` — including session position keys and `recent` —,
+`mapFlashcardPaths`) serve persistence, relocation and migration alike.
+
+**Moves.** The catalog pairs a file that appeared with one that vanished when size and mtime
+match exactly and, when the vanished entry's hash is known, the hashes match. Exactly one
+candidate on each side is required; otherwise the old entry gets `missingSince` and its data is
+kept. `relocateAll` writes `moves.journal.json`, re-points every store through its own queue, then
+deletes the journal; an interrupted run is replayed when the library opens.

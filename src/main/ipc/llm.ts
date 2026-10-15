@@ -1,6 +1,7 @@
 import type { ChatMessage, ChatRequest } from "@shared/types";
 import { IPC } from "@shared/channels";
-import { abortChat, chatStream, modelsFor } from "@main/llm/service";
+import { onLibrarySwitch } from "@main/library/context";
+import { abortChat, cancelAllChats, chatStream, modelsFor } from "@main/llm/service";
 import { handle } from "./registry";
 
 function asChatMessages(value: unknown): ChatMessage[] {
@@ -42,4 +43,5 @@ export function registerLlmIpc(): void {
   handle(IPC.llm.chatStream, async (req: unknown) => chatStream(asChatRequest(req)));
   handle(IPC.llm.abort, async (streamId: unknown) => abortChat(String(streamId)));
   handle(IPC.llm.models, async (providerId: unknown) => modelsFor(String(providerId)));
+  onLibrarySwitch(cancelAllChats);
 }

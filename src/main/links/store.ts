@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type {
   Concept,
   ConceptProposal,
@@ -19,6 +18,8 @@ import type {
 } from "@shared/types";
 import { samePath } from "@shared/docLabel";
 import { cleanConceptName, conceptSimilarity, foldConceptKey, passageKey } from "@shared/links/normalize";
+import { writeJsonAtomic } from "@main/library/atomic";
+import { IDENTITY_CODEC, isUrl, pathMover, type PathCodec, type PathMove } from "@main/library/paths";
 import { asArray, asNumber, asRecord, asString, parseRects } from "@main/providers/json";
 
 export interface ExtractionRecord {
@@ -31,7 +32,7 @@ export interface ExtractionRecord {
   updatedAt: string;
 }
 
-interface LinksFile {
+export interface LinksFile {
   version: 1;
   revision: number;
   concepts: Concept[];
@@ -54,9 +55,27 @@ export interface LinksStoreOptions {
   onChange?: (event: LinksChangedEvent) => void;
   /** Content hash of a file on disk, so passages can be flagged stale when the file changes. */
   hashFile?: (path: string) => Promise<string | undefined>;
+  /** Persisted document paths go through this (library-relative `lib:` paths). */
+  codec?: PathCodec;
+}
+
+/** Every document path in a links file rewritten by `fn` (persistence, relocation, migration). */
+export function mapLinksPaths(data: LinksFile, fn: (path: string) => string): LinksFile {
+  const extractions: Record<string, ExtractionRecord> = {};
+  for (const [hash, record] of Object.entries(data.extractions)) extractions[hash] = { ...record, docPath: fn(record.docPath) };
+  return {
+    ...data,
+    passages: data.passages.map((passage) => ({ ...passage, docPath: fn(passage.docPath) })),
+    proposals: data.proposals.map((proposal) => ({ ...proposal, docPath: fn(proposal.docPath) })),
+    extractions
+  };
 }
 
 const MAX_QUOTE_CHARS = 2000;
+// A web excerpt's text is the saved copy read offline (the URL only cites the source), so it
+// keeps its paragraphs and may be long.
+const MAX_EXCERPT_CHARS = 20000;
+const MAX_TITLE_CHARS = 300;
 const MAX_NOTE_CHARS = 20000;
 const MAX_ALIASES = 20;
 const SUGGEST_SIMILARITY = 0.8;
@@ -70,6 +89,18 @@ function emptyFile(): LinksFile {
 
 function cleanQuote(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, MAX_QUOTE_CHARS);
+}
+
+/** Web excerpts are Markdown: indentation (nested lists, code) is meaningful, only line ends are trimmed. */
+export function cleanExcerpt(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\u00a0]+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, MAX_EXCERPT_CHARS);
 }
 
 function cleanAliases(aliases: readonly string[], name: string): string[] {
@@ -119,11 +150,13 @@ function parsePassage(value: unknown): Passage | null {
   const rects = parseRects(record?.["rects"]);
   const chunkId = asString(record?.["chunkId"]);
   const contentHash = asString(record?.["contentHash"]);
+  const title = asString(record?.["title"]);
   return {
     id,
     docPath,
     quote,
     createdAt,
+    ...(title ? { title } : {}),
     ...(page !== undefined ? { page } : {}),
     ...(rects.length > 0 ? { rects } : {}),
     ...(chunkId ? { chunkId } : {}),
@@ -279,28 +312,53 @@ function samePassage(passage: Passage, draft: PassageDraft): boolean {
 export class LinksStore {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly clock: () => Date;
+  private readonly codec: PathCodec;
 
   constructor(
     private readonly filePath: string,
     private readonly options: LinksStoreOptions = {}
   ) {
     this.clock = options.clock ?? (() => new Date());
+    this.codec = options.codec ?? IDENTITY_CODEC;
   }
 
   private async read(): Promise<LinksFile> {
+    let raw: unknown;
     try {
-      return parseFile(JSON.parse(await readFile(this.filePath, "utf8")) as unknown);
+      raw = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
     } catch {
       return emptyFile();
     }
+    return mapLinksPaths(parseFile(raw), (path) => this.codec.fromStored(path));
   }
 
-  /** Temp-write then rename so a crash mid-write cannot truncate the existing file. */
-  private async write(data: LinksFile): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const temp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(temp, this.filePath);
+  private write(data: LinksFile): Promise<void> {
+    return writeJsonAtomic(this.filePath, mapLinksPaths(data, (path) => this.codec.toStored(path)));
+  }
+
+  /** Resolves once every queued write has landed. */
+  async flush(): Promise<void> {
+    await this.queue;
+  }
+
+  /** The whole file with runtime paths (migration). */
+  exportData(): Promise<LinksFile> {
+    return this.snapshot();
+  }
+
+  /** Replace the whole file (migration); runtime paths are encoded on write. */
+  importData(data: LinksFile): Promise<void> {
+    return this.mutate("graph", (current) => {
+      Object.assign(current, { ...data, revision: current.revision });
+    });
+  }
+
+  /** Re-point every reference to documents that moved on disk (same bytes, new path). */
+  relocateMany(moves: readonly PathMove[]): Promise<void> {
+    const move = pathMover(moves);
+    return this.mutate("graph", (data) => {
+      Object.assign(data, mapLinksPaths(data, move));
+    });
   }
 
   private mutate<T>(reason: LinksChangedEvent["reason"], change: (data: LinksFile) => T): Promise<T> {
@@ -371,11 +429,13 @@ export class LinksStore {
   }
 
   private ensurePassage(data: LinksFile, draft: PassageDraft, contentHash: string | undefined): Passage {
-    const quote = cleanQuote(draft.quote);
+    const quote = isUrl(draft.docPath) ? cleanExcerpt(draft.quote) : cleanQuote(draft.quote);
     const page = validPage(draft.page);
+    const title = draft.title?.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS);
     const normalized: PassageDraft = {
       docPath: draft.docPath,
       quote,
+      ...(title ? { title } : {}),
       ...(page !== undefined ? { page } : {}),
       ...(draft.rects && draft.rects.length > 0 ? { rects: draft.rects } : {}),
       ...(draft.chunkId ? { chunkId: draft.chunkId } : {})
@@ -383,6 +443,7 @@ export class LinksStore {
     const existing = data.passages.find((passage) => samePassage(passage, normalized));
     if (existing) {
       if (!existing.rects && normalized.rects) existing.rects = normalized.rects;
+      if (!existing.title && normalized.title) existing.title = normalized.title;
       return existing;
     }
     const passage: Passage = {
@@ -428,6 +489,8 @@ export class LinksStore {
     const hashFile = this.options.hashFile;
     if (!hashFile) return result;
     for (const path of new Set(paths)) {
+      // Web excerpts have no file to hash, so they are never flagged stale.
+      if (isUrl(path)) continue;
       const hash = await hashFile(path).catch(() => undefined);
       if (hash) result.set(path, hash);
     }

@@ -1,15 +1,7 @@
-import { app, dialog } from "electron";
+import { dialog } from "electron";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { Thread } from "@shared/types";
-import { ThreadStore } from "./threadStore";
-
-let store: ThreadStore | null = null;
-
-function threadStore(): ThreadStore {
-  store ??= new ThreadStore(join(app.getPath("userData"), "threads"));
-  return store;
-}
+import { getThreadStore as threadStore } from "@main/library/scopedStores";
 
 export function saveThread(thread: Thread): Promise<void> {
   return threadStore().save(thread);

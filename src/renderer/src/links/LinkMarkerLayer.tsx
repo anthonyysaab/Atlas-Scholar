@@ -7,6 +7,7 @@ import { useLinksStore } from "@renderer/state/linksStore";
 import { rectToDisplay } from "@renderer/viewer/selection";
 import { showConceptInLinks } from "./actions";
 import { conceptsOfPassage, indexGraph, relatedOfPassage } from "./graphIndex";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 const LAYER_CLASS = "ra-link-layer";
 
@@ -168,7 +169,7 @@ export function LinkMarkerLayer() {
             ↔ {shortDocLabel(passage.docPath)}
             {passage.page !== undefined ? ` p.${passage.page}` : ""}
           </span>
-          <span className="line-clamp-2 text-[11px] text-text-weak">{passage.quote}</span>
+          <MarkdownPreview content={passage.quote} lines={2} className="text-[11px] text-text-weak" />
         </button>
       ))}
       {concepts.length === 0 && related.length === 0 ? <span className="text-text-weak">No links</span> : null}

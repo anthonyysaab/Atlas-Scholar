@@ -8,6 +8,17 @@ export interface FileRef {
   ext: string;
   mime: string;
   size: number;
+  /** How the file relates to the open library (set by `file.ref` / `file.openDialog`). */
+  library?: FileLibraryInfo;
+}
+
+export interface FileLibraryInfo {
+  /** The file lives inside the open library folder. */
+  inLibrary: boolean;
+  /** Library-relative path with forward slashes (library files only). */
+  relPath?: string;
+  /** An outside file whose bytes already exist in the library: that copy's absolute path. */
+  libraryCopy?: string;
 }
 
 export interface FileApi {
@@ -260,6 +271,7 @@ export interface Settings {
     panelSize?: number;
   };
   keysConfigured: Record<string, boolean>;
+  /** @deprecated Recent documents live in the library workspace; read only to migrate old data. */
   recentFiles?: string[];
   providers?: StoredProvider[];
   hiddenProviders?: string[];
@@ -347,6 +359,16 @@ export interface BrowserApi {
   setVisible(visible: boolean): Promise<void>;
   current(): Promise<BrowserState>;
   onState(cb: (state: BrowserState) => void): () => void;
+  /** The page's URL and title and the text selected on it (empty when nothing is selected). */
+  selection(): Promise<WebSelection>;
+  /** "Save … to graph" chosen from the page's context menu. */
+  onSaveRequest(cb: (selection: WebSelection) => void): () => void;
+}
+
+export interface WebSelection {
+  url: string;
+  title: string;
+  text: string;
 }
 
 export interface OnboardingChoices {
@@ -421,6 +443,12 @@ export interface WorkspaceApi {
   session: {
     get(): Promise<WorkspaceSession | null>;
     set(session: WorkspaceSession): Promise<void>;
+  };
+  /** Recently opened documents of the open library, newest first. */
+  recent: {
+    list(): Promise<string[]>;
+    remove(path: string): Promise<void>;
+    clear(): Promise<void>;
   };
 }
 
@@ -501,6 +529,163 @@ export interface FlashcardsApi {
   exportAnki(deckId: string): Promise<string | null>;
 }
 
+/* Libraries and text search (07-library-and-search) */
+
+export interface LibraryInfo {
+  root: string;
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface RecentLibrary {
+  root: string;
+  id: string;
+  name: string;
+  openedAt: string;
+}
+
+export interface LibraryState {
+  open: LibraryInfo | null;
+  /** The last library, when its folder is no longer where it was. */
+  missing: RecentLibrary | null;
+  /** Data from before libraries exists in the app folder and has not been migrated yet. */
+  legacyData: boolean;
+  /** Other computers that have this (synced) library open right now. */
+  openElsewhere: string[];
+  /** Copies a sync service left when two computers wrote the same data file (e.g. `links-PC.json`). */
+  conflicts: string[];
+}
+
+export interface LibraryFile {
+  path: string;
+  /** Forward slashes, relative to the library root. */
+  relPath: string;
+  size: number;
+  mtimeMs: number;
+}
+
+export interface LibraryChangedEvent {
+  /** Documents that moved, were renamed or were imported (runtime paths). */
+  moves: { from: string; to: string }[];
+  /** The library's file list changed. */
+  filesChanged: boolean;
+}
+
+export type MigrationDocState = "inside" | "outside" | "missing";
+
+export interface MigrationDocCounts {
+  threads: number;
+  passages: number;
+  annotations: number;
+  bookmarks: number;
+  cards: number;
+  indexed: boolean;
+}
+
+export interface MigrationDoc {
+  path: string;
+  state: MigrationDocState;
+  counts: MigrationDocCounts;
+  /** Outside documents with notes or links are offered for copying in, checked by default. */
+  suggestCopy: boolean;
+}
+
+export interface MigrationPlan {
+  root: string;
+  docs: MigrationDoc[];
+  totals: {
+    threads: number;
+    concepts: number;
+    passages: number;
+    annotations: number;
+    bookmarks: number;
+    cards: number;
+    decks: number;
+    indexes: number;
+  };
+}
+
+export interface MigrationChoices {
+  name?: string;
+  /** Outside documents to copy into the library (their data follows them). */
+  copy: string[];
+}
+
+export interface ImportResult {
+  from: string;
+  /** The library copy, or the copy that already held these bytes. */
+  path: string;
+  existing: boolean;
+}
+
+export interface TextSearchInput {
+  query: string;
+}
+
+export interface TextSearchSnippet {
+  before: string;
+  match: string;
+  after: string;
+}
+
+export interface TextSearchPageHit {
+  page: number;
+  hits: number;
+  snippets: TextSearchSnippet[];
+}
+
+export interface TextSearchDocHit {
+  docPath: string;
+  relPath: string;
+  hits: number;
+  pages: TextSearchPageHit[];
+}
+
+export interface TextSearchResult {
+  query: string;
+  docs: TextSearchDocHit[];
+  totalHits: number;
+  /** More documents, pages or snippets matched than were returned. */
+  truncated: boolean;
+  searchedDocs: number;
+  /** Library documents whose text is still being extracted; the query re-runs when they are done. */
+  pendingDocs: number;
+}
+
+export interface FindProgress {
+  done: number;
+  total: number;
+  running: boolean;
+}
+
+export interface LibraryApi {
+  state(): Promise<LibraryState>;
+  recent(): Promise<RecentLibrary[]>;
+  forgetRecent(root: string): Promise<void>;
+  pickFolder(purpose: "create" | "open"): Promise<string | null>;
+  /** Create a library in `root` and switch to it (the window reloads). */
+  create(root: string, name?: string): Promise<void>;
+  /** Switch to the library in `root` (the window reloads). `expectId` guards "Locate moved library". */
+  open(root: string, expectId?: string): Promise<void>;
+  files(): Promise<LibraryFile[]>;
+  rescan(): Promise<LibraryFile[]>;
+  /** Copy outside documents into the library (`folder` is library-relative); originals are untouched. */
+  import(paths: string[], folder?: string): Promise<ImportResult[]>;
+  importDialog(folder?: string): Promise<ImportResult[]>;
+  reveal(path?: string): Promise<void>;
+  /** Outside documents that still exist and carry chats, links, bookmarks or cards. */
+  outsideWithData(): Promise<string[]>;
+  migration: {
+    plan(root: string): Promise<MigrationPlan>;
+    /** Build the library from the pre-library data and switch to it (the window reloads). */
+    run(root: string, choices: MigrationChoices): Promise<void>;
+  };
+  findText(input: TextSearchInput): Promise<TextSearchResult>;
+  onChanged(cb: (event: LibraryChangedEvent) => void): () => void;
+  onFindProgress(cb: (event: FindProgress) => void): () => void;
+}
+
 export interface Api {
   file: FileApi;
   doc: DocApi;
@@ -518,6 +703,7 @@ export interface Api {
   workspace: WorkspaceApi;
   flashcards: FlashcardsApi;
   links: LinksApi;
+  library: LibraryApi;
 }
 
 export interface OpenDoc {
@@ -576,10 +762,13 @@ export interface Concept {
 }
 
 export interface PassageDraft {
+  /** A document path, or the page URL of a web excerpt (D21). */
   docPath: string;
   /** 1-based PDF page; absent for text documents. */
   page?: number;
   quote: string;
+  /** Web excerpts: the page title. */
+  title?: string;
   rects?: NormalizedRect[];
   chunkId?: string;
 }

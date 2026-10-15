@@ -179,3 +179,74 @@ budget for a personal library, and Float32 halves memory against the JSON `numbe
 `(docName, p.N)`; thread parsing keeps those fields. Unindexed documents are invisible to library
 search, related suggestions and extraction.
 **Date:** 2026-10-15
+
+## D19 — Portable libraries: documents and their data live in one folder
+**Decision:** A **library** is a folder the user chooses. Documents are *copied* into it on import
+(originals are never touched), and every store the app keeps about documents (links, threads,
+annotations, bookmarks, session, recent documents, flashcards, catalog, search index, extract
+cache) lives in `<library>/.assistant/`. Inside that folder, library documents are referenced as
+`lib:<relPath>` (forward slashes, NFC, compared case-insensitively); documents outside the library
+and URLs are stored verbatim. Several libraries can exist; the app opens one at a time (switching
+reloads the window) and keeps a recent-libraries list in `userData/libraries.json`. Settings,
+providers, secrets and the model catalog stay app-global in userData. Outside documents remain
+readable, with an "Import" banner; their data is kept by absolute path and re-pointed to the copy
+on import. A catalog (stat-only scan + recursive watcher, lazy hashes) follows renames and moves
+inside the library by size + mtime (+ hash when known); ambiguous cases are never guessed and
+data is never deleted.
+**Why:** Absolute paths in userData orphaned threads and bookmarks whenever a PDF moved, and
+moving to another computer lost everything. Keeping documents and data in one folder makes the
+whole thing movable, zippable and syncable. Path codecs at the store boundary keep the renderer
+and IPC on plain absolute paths, so no UI component had to change.
+**Supersedes:** D8 for library documents: their annotations live in
+`.assistant/annotations/<docKey>.json`, not in a sidecar next to the PDF (legacy sidecars are read
+and adopted, never modified). Outside documents keep D8 sidecars.
+**Amends:** D4 (the index lives in the library and stores `lib:` paths), D17 (links are stored in
+the library and follow moves; passages without rects now land on their text, see D20).
+**Consequence:** New `Api.library` (§1.13), `FileRef.library`, `WorkspaceApi.recent`;
+`Settings.recentFiles` is deprecated (read once to migrate). Without an open library the renderer
+shows `LibraryGate` and library-scoped IPC throws `NoLibraryError`. First launch offers to
+migrate the old userData stores into a new library (userData is left untouched as a backup).
+**Date:** 2026-10-15
+
+## D20 — Lexical find: one folding matcher for Find in PDF and Find in library
+**Decision:** Text search is exact-phrase and lexical, not semantic: `src/shared/textSearch.ts`
+folds text (NFKD, accents and case removed, ligatures expanded, quotes/dashes unified, whitespace
+collapsed, words hyphenated across a line break joined) with an offset map back to the source.
+**Find in this PDF** (Ctrl+F) matches page text built from pdf.js text items exactly like the
+extractor and highlights DOM ranges over the text layer. **Find in library** (Ctrl+Shift+F) is a
+brute-force `indexOf` over the folded extracted page text of every library document (an LRU of
+folded corpora, ~100 M characters), with unextracted documents extracted one at a time in the
+background. Results: ≤ 50 documents × 20 pages × 3 snippets, with `truncated`.
+**Why:** People search for words they remember; semantic search already exists (D18). A personal
+library is tens of MB of text, which a linear scan answers in milliseconds, so an inverted index
+would only add state to keep in sync.
+**Consequence:** `openPassage` gains `find`; passages and citations with a quote but no rects
+open the find bar on their opening words and land on the exact text (lifting D17's page-only
+limitation).
+**Date:** 2026-10-15
+
+## D21 — Web excerpts in the concept graph
+**Decision:** Text selected in the Search tab browser can be linked like a PDF passage: "Save to
+graph" (toolbar button, or a native "Save selection to graph" context menu on the page) opens the
+link picker with a passage whose `docPath` is the page URL, `quote` the selection (the page title
+when nothing is selected) and `title` the page title. **The saved text is the excerpt**, captured
+as **Markdown with LaTeX math**: headings, emphasis, lists, quotes, code, tables and links are
+converted from the page's markup, and math is taken as TeX from MathML annotations / `alttext`
+(Wikipedia), KaTeX and MathJax (`$…$`, `$$…$$`). It keeps its paragraphs (up to 20,000
+characters, against 2,000 for PDF quotes) and lives in the library, so it reads offline. **The URL is for source hygiene**: opening an excerpt shows the saved text with
+its title and URL ("Copy with source" copies both); "Open source page" loads the URL in the
+Search tab with a Chromium text fragment (`#:~:text=start,end`) that scrolls to and highlights it.
+Whole pages are not saved. The graph groups web excerpts by site (one colour and legend entry per
+host).
+**Why:** Reading often spans a PDF and a web page about the same idea; keeping both in one graph
+is the point of the graph. Pages change or vanish and the user may be offline, so the excerpt must
+not depend on the page; the link only says where it came from. Text fragments need no script
+injected into the page.
+**Consequence:** `PassageDraft.title`; `BrowserApi.selection()` / `onSaveRequest`; URLs are
+never hashed, flagged stale, relocated or turned into `lib:` paths; `pathKey` and
+`shortDocLabel` treat URLs as URLs (label = host). Reading the selection runs a read-only
+script in the isolated `persist:rabrowser` view (it clones the selected range and converts it,
+`src/main/browser/selectionMarkdown.ts`; plain text if that fails); URL and title come from
+Chromium. All saved text the app shows (quotes, excerpts, concept notes, chat quotes and
+reasoning) renders through the same Markdown + KaTeX renderer as chat answers.
+**Date:** 2026-10-15

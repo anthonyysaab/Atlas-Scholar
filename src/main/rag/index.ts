@@ -1,5 +1,6 @@
 import { watch, type FSWatcher } from "node:fs";
 import { basename, resolve } from "node:path";
+import { samePath } from "@shared/docLabel";
 import type {
   IndexStatus,
   LibrarySearchInput,
@@ -13,6 +14,8 @@ import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
 import { resolveProviderConfig } from "@main/providers";
 import { extractDoc } from "@main/ingest/extract";
+import { currentLibrary, onLibrarySwitch } from "@main/library/context";
+import { relativeInside } from "@main/library/paths";
 import { chunkDocument } from "./chunk";
 import { resolveEmbedder } from "./embed";
 import { LibraryCache } from "./library";
@@ -31,6 +34,16 @@ const NONE_STATUS: Omit<IndexStatus, "docPath"> = { state: "none", chunks: 0, di
 
 export const libraryCache = new LibraryCache(() => vectorStore.list());
 vectorStore.onChange((change) => libraryCache.apply(change));
+
+/** Everything here belongs to the open library: stop it all when another one opens. */
+export function resetRagState(): void {
+  for (const controller of controllers.values()) controller.abort();
+  controllers.clear();
+  for (const path of [...watchers.keys(), ...watchTimers.keys()]) stopWatcher(path);
+  statuses.clear();
+  libraryCache.clear();
+}
+onLibrarySwitch(resetRagState);
 
 function abortError(): Error {
   const error = new Error("Indexing cancelled");
@@ -91,7 +104,7 @@ function cancelInFlight(path: string): void {
 async function deleteStale(docPath: string, keepHash: string): Promise<void> {
   const all = await vectorStore.list();
   for (const index of all) {
-    if (index.docPath === docPath && index.contentHash !== keepHash) {
+    if (samePath(index.docPath, docPath) && index.contentHash !== keepHash) {
       await vectorStore.remove(index.contentHash);
     }
   }
@@ -192,7 +205,7 @@ export async function indexDocument(docPath: string, opts?: IndexOptions): Promi
 
     if (!opts?.force) {
       const existing = await vectorStore.load(extracted.contentHash);
-      if (existing && existing.docPath === path && existing.embedModel === embedModel) {
+      if (existing && samePath(existing.docPath, path) && existing.embedModel === embedModel) {
         const status = statusFromIndex(existing);
         statuses.set(path, status);
         ensureWatcher(path);
@@ -411,7 +424,7 @@ async function retrieveFromLibrary(
     ...(input.selection ? { selection: input.selection } : {})
   });
   const notices: string[] = [];
-  const currentIndexed = usable.some((doc) => doc.docPath === path);
+  const currentIndexed = usable.some((doc) => samePath(doc.docPath, path));
   if (usable.length === 1) {
     notices.push(
       currentIndexed
@@ -425,7 +438,18 @@ async function retrieveFromLibrary(
     const verb = skipped.length === 1 ? "was" : "were";
     notices.push(`${plural(skipped.length, "document")} indexed with another embedding model ${verb} skipped — re-index to include.`);
   }
-  return { retrieved: result.retrieved, ...(notices.length > 0 ? { notice: notices.join(" ") } : {}) };
+  return { retrieved: labelOutside(result.retrieved), ...(notices.length > 0 ? { notice: notices.join(" ") } : {}) };
+}
+
+/** Indexed documents outside the library still answer library questions; say where they live. */
+function labelOutside(retrieved: Retrieved[]): Retrieved[] {
+  const root = currentLibrary()?.root;
+  if (!root) return retrieved;
+  return retrieved.map((chunk) =>
+    chunk.docPath && chunk.docName && relativeInside(root, chunk.docPath) === null
+      ? { ...chunk, docName: `${chunk.docName} (outside)` }
+      : chunk
+  );
 }
 
 /** Semantic search across the library for link suggestions and the link picker. */

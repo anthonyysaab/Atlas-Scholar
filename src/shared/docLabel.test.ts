@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { labelsFor, samePath, shortDocLabel } from "./docLabel";
+import { labelsFor, pathKey, samePath, shortDocLabel } from "./docLabel";
 
 describe("shortDocLabel", () => {
   it("keeps short names whole and drops the extension", () => {
@@ -35,5 +35,15 @@ describe("samePath", () => {
   it("is case-sensitive for POSIX paths", () => {
     expect(samePath("/home/u/A.pdf", "/home/u/a.pdf")).toBe(false);
     expect(samePath("/home/u/A.pdf", "/home/u/A.pdf")).toBe(true);
+  });
+
+  it("folds library paths: case, slash direction and Unicode normalization", () => {
+    expect(samePath("lib:Cours/Théo.pdf", "lib:cours\\the\u0301o.pdf")).toBe(true);
+    expect(samePath("lib:a/x.pdf", "lib:b/x.pdf")).toBe(false);
+    expect(samePath("lib:x.pdf", "C:\\lib\\x.pdf")).toBe(false);
+  });
+
+  it("leaves URLs alone", () => {
+    expect(pathKey("https://Example.com/A")).toBe("https://Example.com/A");
   });
 });

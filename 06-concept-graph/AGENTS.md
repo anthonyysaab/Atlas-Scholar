@@ -94,6 +94,9 @@ All checklist items ticked, the commands above green, and the manual flow works 
   review-gated extraction during user-triggered indexing (resumable, cancellable); Links tab with
   local graph and review queue; centre graph tab (d3-force, canvas, search, legend, concepts-only,
   focus); PDF link markers; graph tab restored with the session; moved files re-pointed by hash.
+- Note (07): the links store now lives in the open library (`.assistant/links.json`, `lib:` paths) and
+  follows moves and imports; passages without rects open the PDF find bar on their opening words
+  and land on the text (D20), which closes the "page only" gap below.
 - Known gaps: no "Locate…" UI for missing files; passages without rects open at the page only;
   related suggestions need other documents indexed with the same embedding model; threads keyed
   by per-tab `docId` (pre-existing).

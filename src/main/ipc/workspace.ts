@@ -1,8 +1,6 @@
-import { app } from "electron";
-import { join } from "node:path";
 import { IPC } from "@shared/channels";
 import type { Bookmark, SessionPosition, WorkspaceSession } from "@shared/types";
-import { WorkspaceStore } from "@main/workspace";
+import { getWorkspaceStore } from "@main/library/scopedStores";
 import { asNumber, asRecord, asString } from "@main/providers/json";
 import { handle } from "./registry";
 
@@ -56,12 +54,7 @@ function parseSessionInput(value: unknown): WorkspaceSession {
   };
 }
 
-let store: WorkspaceStore | null = null;
-
-function getStore(): WorkspaceStore {
-  if (!store) store = new WorkspaceStore(join(app.getPath("userData"), "workspace.json"));
-  return store;
-}
+const getStore = getWorkspaceStore;
 
 export function registerWorkspaceIpc(): void {
   handle(IPC.workspace.bookmarksList, (docPath: unknown) => getStore().listBookmarks(String(docPath)));
@@ -69,4 +62,7 @@ export function registerWorkspaceIpc(): void {
   handle(IPC.workspace.bookmarksRemove, (id: unknown) => getStore().removeBookmark(String(id)));
   handle(IPC.workspace.sessionGet, () => getStore().getSession());
   handle(IPC.workspace.sessionSet, (session: unknown) => getStore().setSession(parseSessionInput(session)));
+  handle(IPC.workspace.recentList, () => getStore().listRecent());
+  handle(IPC.workspace.recentRemove, (path: unknown) => getStore().removeRecent(String(path)));
+  handle(IPC.workspace.recentClear, () => getStore().clearRecent());
 }

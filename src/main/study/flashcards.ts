@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { CardDraft, Deck, Flashcard, FlashcardSource, ReviewGrade } from "@shared/types";
 import { newSchedule, schedule, START_EASE } from "@shared/srs";
+import { writeJsonAtomic } from "@main/library/atomic";
+import { IDENTITY_CODEC, pathMover, type PathCodec, type PathMove } from "@main/library/paths";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 
-interface FlashcardFile {
+export interface FlashcardFile {
   version: 1;
   decks: Deck[];
   cards: Flashcard[];
@@ -71,33 +72,63 @@ function parseList<T>(value: unknown, parse: (entry: unknown) => T | null): T[] 
   });
 }
 
+/** Every card's source document rewritten by `fn`. */
+export function mapFlashcardPaths(data: FlashcardFile, fn: (path: string) => string): FlashcardFile {
+  return {
+    ...data,
+    cards: data.cards.map((card) => (card.source ? { ...card, source: { ...card.source, docPath: fn(card.source.docPath) } } : card))
+  };
+}
+
 export class FlashcardStore {
   // Reviews fire quickly; serialize read-modify-write cycles so one cannot overwrite another.
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly codec: PathCodec;
 
   constructor(
     private readonly filePath: string,
-    private readonly clock: () => Date = () => new Date()
-  ) {}
+    private readonly clock: () => Date = () => new Date(),
+    options: { codec?: PathCodec } = {}
+  ) {
+    this.codec = options.codec ?? IDENTITY_CODEC;
+  }
 
   private async read(): Promise<FlashcardFile> {
+    let record: Record<string, unknown> | undefined;
     try {
-      const record = asRecord(JSON.parse(await readFile(this.filePath, "utf8")) as unknown);
-      const decks = parseList(record?.["decks"], parseDeck);
-      const deckIds = new Set(decks.map((deck) => deck.id));
-      const cards = parseList(record?.["cards"], parseCard).filter((card) => deckIds.has(card.deckId));
-      return { version: 1, decks, cards };
+      record = asRecord(JSON.parse(await readFile(this.filePath, "utf8")) as unknown);
     } catch {
       return { version: 1, decks: [], cards: [] };
     }
+    const decks = parseList(record?.["decks"], parseDeck);
+    const deckIds = new Set(decks.map((deck) => deck.id));
+    const cards = parseList(record?.["cards"], parseCard).filter((card) => deckIds.has(card.deckId));
+    return mapFlashcardPaths({ version: 1, decks, cards }, (path) => this.codec.fromStored(path));
   }
 
-  /** Temp-write then rename so a crash mid-write cannot truncate the existing file. */
-  private async write(data: FlashcardFile): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const temp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(temp, this.filePath);
+  private write(data: FlashcardFile): Promise<void> {
+    return writeJsonAtomic(this.filePath, mapFlashcardPaths(data, (path) => this.codec.toStored(path)));
+  }
+
+  async flush(): Promise<void> {
+    await this.queue;
+  }
+
+  exportData(): Promise<FlashcardFile> {
+    return this.snapshot();
+  }
+
+  importData(data: FlashcardFile): Promise<void> {
+    return this.mutate((current) => {
+      Object.assign(current, data);
+    });
+  }
+
+  relocate(moves: readonly PathMove[]): Promise<void> {
+    const move = pathMover(moves);
+    return this.mutate((data) => {
+      Object.assign(data, mapFlashcardPaths(data, move));
+    });
   }
 
   private mutate<T>(change: (data: FlashcardFile) => T): Promise<T> {

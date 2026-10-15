@@ -3,6 +3,7 @@ import { shortDocLabel } from "@shared/docLabel";
 import { drawGraph, fitTransform, hitTest, readTheme, type Theme, type Transform } from "./canvasRenderer";
 import type { GraphData } from "./model";
 import { createSimulation, setSimulationData, type GraphSimulation, type SimLink, type SimNode } from "./simulation";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 export interface GraphCanvasProps {
   data: GraphData;
@@ -354,7 +355,8 @@ export function GraphCanvas({
                 {tooltip.node.page !== undefined ? ` · p.${tooltip.node.page}` : ""}
                 {tooltip.node.stale ? " · file changed" : ""}
               </div>
-              <div className="line-clamp-4">{tooltip.node.quote}</div>
+              {tooltip.node.title ? <div className="truncate text-text-weak">{tooltip.node.title}</div> : null}
+              <MarkdownPreview content={tooltip.node.quote ?? ""} lines={4} />
               <div className="mt-0.5 text-[10px] text-text-weak">double-click to open</div>
             </>
           )}

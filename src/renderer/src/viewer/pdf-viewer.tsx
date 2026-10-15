@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { samePath } from "@shared/docLabel";
+import { foldQuery } from "@shared/textSearch";
+import { Icon } from "@renderer/components/Icon";
 import { useAppStore } from "@renderer/state/appStore";
 import { NO_BOOKMARKS, useBookmarkStore } from "@renderer/state/bookmarkStore";
+import { useFindStore } from "@renderer/state/findStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
 import {
   getDocument,
@@ -11,10 +15,20 @@ import {
   type RenderTask
 } from "./pdf";
 import { BookmarkNav } from "./BookmarkNav";
+import { FindBar } from "./find/FindBar";
+import { FindLayer } from "./find/FindLayer";
+import type { FindMatch } from "./find/pageText";
+import { usePdfFind } from "./find/usePdfFind";
 import { destinationFraction, extractLinks, resolveDestination, type PdfLink, type PdfLinkTarget } from "./pdfLinks";
 import "./pdf-viewer.css";
 import type { RendererViewProps } from "./registry";
-import { emitSelection, rectFromDisplay, registerSelectionTarget, type NormalizedRect } from "./selection";
+import {
+  emitSelection,
+  normalizeClientRects,
+  rectFromDisplay,
+  rectToDisplay,
+  registerSelectionTarget
+} from "./selection";
 
 interface Size {
   w: number;
@@ -27,6 +41,14 @@ interface ScrollAnchor {
   page: number;
   fraction: number;
 }
+
+/** Land on the first match at or after `page` once results for `needle` arrive. */
+interface FindLanding {
+  needle: string;
+  page: number;
+}
+
+const NO_MATCHES: FindMatch[] = [];
 
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 6;
@@ -56,6 +78,14 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
   const [jumpText, setJumpText] = useState("1");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(-1);
+  const [landing, setLanding] = useState<FindLanding | null>(null);
+  const [findFocus, setFindFocus] = useState(0);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const find = usePdfFind(pdf, findOpen, findQuery);
+  const findRequest = useFindStore((state) => state.request);
 
   const setSelection = useAppStore((state) => state.setSelection);
   const bookmarks = useBookmarkStore((state) => state.byDoc[ref.path] ?? NO_BOOKMARKS);
@@ -81,6 +111,10 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
     setError(null);
     setLoading(true);
     setRotation(0);
+    setFindOpen(false);
+    setFindQuery("");
+    setActiveMatch(-1);
+    setLanding(null);
     const saved = useViewStateStore.getState().positions[ref.path]?.page;
     pendingRestore.current = saved && saved > 1 ? { path: ref.path, page: saved } : null;
     void (async () => {
@@ -209,9 +243,96 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
   );
 
   useEffect(
-    () => registerSelectionTarget(docId, { scrollTo: (page) => goToPage(page) }),
-    [docId, goToPage]
+    () =>
+      registerSelectionTarget(docId, {
+        scrollTo: (page, rects) => {
+          const top = rects.length > 0 ? Math.min(...rects.map((rect) => rectToDisplay(rect, rotation).y)) : 0;
+          goToPage(page, Math.max(0, top - 0.05));
+        }
+      }),
+    [docId, goToPage, rotation]
   );
+
+  const scrollToMatch = useCallback(
+    (match: FindMatch) => {
+      const root = rootRef.current;
+      const element = pagesRef.current.get(match.page);
+      if (!root || !element) return;
+      const y = rectToDisplay({ x: match.x, y: match.y, w: 0, h: 0 }, rotation).y;
+      root.scrollTo({ top: element.offsetTop + y * element.offsetHeight - root.clientHeight * 0.35 });
+      setCurrentPage(match.page);
+      setJumpText(String(match.page));
+    },
+    [rotation]
+  );
+
+  const activateMatch = useCallback(
+    (index: number) => {
+      const match = find.matches[index];
+      setActiveMatch(match ? index : -1);
+      if (match) scrollToMatch(match);
+    },
+    [find.matches, scrollToMatch]
+  );
+
+  useEffect(() => {
+    if (!landing || find.needle !== landing.needle) return;
+    const match = find.matches.find((candidate) => candidate.page >= landing.page);
+    if (match) {
+      setLanding(null);
+      activateMatch(match.index);
+    } else if (!find.scanning) {
+      setLanding(null);
+      activateMatch(0);
+    }
+  }, [landing, find, activateMatch]);
+
+  const changeFindQuery = useCallback((query: string, page: number) => {
+    setFindQuery(query);
+    setActiveMatch(-1);
+    const needle = foldQuery(query);
+    setLanding(needle ? { needle, page } : null);
+  }, []);
+
+  const stepMatch = useCallback(
+    (delta: number) => {
+      const total = find.matches.length;
+      if (total === 0) return;
+      const from = activeMatch < 0 ? (delta > 0 ? -1 : 0) : activeMatch;
+      activateMatch((from + delta + total) % total);
+    },
+    [find.matches.length, activeMatch, activateMatch]
+  );
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindFocus(0);
+    setActiveMatch(-1);
+    setLanding(null);
+  }, []);
+
+  useEffect(() => {
+    const onFind = () => {
+      if (!pdf) return;
+      const selection = window.getSelection();
+      const selected =
+        selection && !selection.isCollapsed && rootRef.current?.contains(selection.anchorNode)
+          ? selection.toString().replace(/\s+/g, " ").trim()
+          : "";
+      if (selected && selected.length <= 200) changeFindQuery(selected, currentPage);
+      setFindOpen(true);
+      setFindFocus((count) => count + 1);
+    };
+    window.addEventListener("ra:find", onFind);
+    return () => window.removeEventListener("ra:find", onFind);
+  }, [pdf, currentPage, changeFindQuery]);
+
+  useEffect(() => {
+    if (!findRequest || !pdf || !samePath(findRequest.docPath, ref.path)) return;
+    useFindStore.getState().consume(findRequest.token);
+    setFindOpen(true);
+    changeFindQuery(findRequest.query, findRequest.page ?? currentPage);
+  }, [findRequest, pdf, ref.path, currentPage, changeFindQuery]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -279,28 +400,11 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
       }
     }
     if (!pageElement) return;
-    const pageRect = pageElement.getBoundingClientRect();
     const elementRotation = Number(pageElement.dataset.rotation ?? "0") || 0;
-    const rects: NormalizedRect[] = [];
-    for (const clientRect of Array.from(range.getClientRects())) {
-      const left = Math.max(clientRect.left, pageRect.left);
-      const top = Math.max(clientRect.top, pageRect.top);
-      const right = Math.min(clientRect.right, pageRect.right);
-      const bottom = Math.min(clientRect.bottom, pageRect.bottom);
-      if (right <= left || bottom <= top) continue;
-      // Store against the unrotated page frame so the highlight stays aligned when rotated later.
-      rects.push(
-        rectFromDisplay(
-          {
-            x: (left - pageRect.left) / pageRect.width,
-            y: (top - pageRect.top) / pageRect.height,
-            w: (right - left) / pageRect.width,
-            h: (bottom - top) / pageRect.height
-          },
-          elementRotation
-        )
-      );
-    }
+    // Store against the unrotated page frame so the highlight stays aligned when rotated later.
+    const rects = normalizeClientRects(pageElement.getBoundingClientRect(), Array.from(range.getClientRects())).map(
+      (rect) => rectFromDisplay(rect, elementRotation)
+    );
     if (rects.length === 0) {
       emitSelection(null);
       setSelection(null);
@@ -337,6 +441,9 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
           rootRef={rootRef}
           registerPage={registerPage}
           onLink={followLink}
+          findMatches={find.byPage.get(index + 1) ?? NO_MATCHES}
+          findItemCount={find.itemCounts.get(index + 1)}
+          activeMatch={activeMatch}
         />
       ))
     : null;
@@ -427,9 +534,37 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
         >
           Next
         </button>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent("ra:find"))}
+          className={toolbarButton}
+          disabled={!pdf}
+          title="Find in this PDF (Ctrl+F)"
+          aria-label="Find in this PDF"
+          aria-pressed={findOpen}
+        >
+          <Icon name="search" className="h-3 w-3" />
+        </button>
       </div>
 
-      <div ref={rootRef} onMouseUp={onMouseUp} className="relative min-h-0 flex-1 overflow-auto px-4 py-4">
+      <div className="relative min-h-0 flex-1">
+        {findOpen && pdf ? (
+          <FindBar
+            inputRef={findInputRef}
+            query={findQuery}
+            onQuery={(query) => changeFindQuery(query, currentPage)}
+            active={activeMatch}
+            total={find.matches.length}
+            scanning={find.scanning}
+            capped={find.capped}
+            onNext={() => stepMatch(1)}
+            onPrev={() => stepMatch(-1)}
+            onClose={closeFind}
+            focusSignal={findFocus}
+          />
+        ) : null}
+        <div ref={rootRef} onMouseUp={onMouseUp} className="relative h-full overflow-auto px-4 py-4">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <p className="text-sm text-text">Could not open this PDF</p>
@@ -447,6 +582,7 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
         ) : (
           pages
         )}
+        </div>
       </div>
     </div>
   );
@@ -461,12 +597,29 @@ interface PdfPageProps {
   rootRef: RefObject<HTMLDivElement | null>;
   registerPage: (pageNumber: number, element: HTMLDivElement | null) => void;
   onLink: (target: PdfLinkTarget) => void;
+  findMatches: readonly FindMatch[];
+  findItemCount: number | undefined;
+  activeMatch: number;
 }
 
-function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, registerPage, onLink }: PdfPageProps) {
+function PdfPage({
+  pdf,
+  pageNumber,
+  scale,
+  rotation,
+  baseSize,
+  rootRef,
+  registerPage,
+  onLink,
+  findMatches,
+  findItemCount,
+  activeMatch
+}: PdfPageProps) {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+  const textLayerRef = useRef<TextLayer | null>(null);
+  const [textVersion, setTextVersion] = useState(0);
   const renderedKeyRef = useRef("");
   const renderedRotationRef = useRef<number | null>(null);
   const [active, setActive] = useState(false);
@@ -539,6 +692,8 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
       textLayer = layer;
       await layer.render();
       renderedKeyRef.current = renderKey;
+      textLayerRef.current = layer;
+      setTextVersion((version) => version + 1);
     };
     const start = (): void => {
       void run().catch((renderError: unknown) => {
@@ -589,6 +744,14 @@ function PdfPage({ pdf, pageNumber, scale, rotation, baseSize, rootRef, register
       style={{ width: size.w, height: size.h }}
     >
       <canvas ref={canvasRef} />
+      <FindLayer
+        pageRef={pageRef}
+        textLayerRef={textLayerRef}
+        textVersion={textVersion}
+        matches={findMatches}
+        activeIndex={activeMatch}
+        itemCount={findItemCount}
+      />
       <div ref={textRef} className="ra-pdf-text" />
       {/* Always mounted: HighlightLayer appends its own layer after React's children and must stay on top. */}
       <div className="ra-pdf-links">

@@ -1,24 +1,19 @@
-import { app, dialog } from "electron";
+import { dialog } from "electron";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { IPC } from "@shared/channels";
 import type { CardDraft, FlashcardSource, GenerateCardsInput, ReviewGrade } from "@shared/types";
+import { getFlashcardStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 import { deckToAnkiTsv } from "@main/study/anki";
-import { FlashcardStore, parseSource } from "@main/study/flashcards";
+import { parseSource } from "@main/study/flashcards";
 import { buildGenerateMessages, clampMaxCards, parseGeneratedCards } from "@main/study/generate";
 import { handle } from "./registry";
 
 const GENERATE_TIMEOUT_MS = 5 * 60 * 1000;
 const GRADES: readonly ReviewGrade[] = ["again", "hard", "good", "easy"];
 
-let store: FlashcardStore | null = null;
-
-function getStore(): FlashcardStore {
-  if (!store) store = new FlashcardStore(join(app.getPath("userData"), "flashcards.json"));
-  return store;
-}
+const getStore = getFlashcardStore;
 
 function requireString(value: unknown, what: string): string {
   if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid ${what}`);

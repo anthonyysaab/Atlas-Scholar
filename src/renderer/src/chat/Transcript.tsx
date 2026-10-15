@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import type { Citation, Thread } from "@shared/types";
 import { samePath, shortDocLabel } from "@shared/docLabel";
 import { ConceptRendererContext, Markdown } from "@renderer/components/Markdown";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { requestCitationJump } from "@renderer/context/citationJump";
 import { ConceptChip } from "@renderer/chat/ConceptChip";
@@ -100,14 +101,14 @@ function MessageRow({
             }
             className="mb-1 block w-full border-l-2 border-border pl-2 text-left text-[12px] text-text-weak hover:text-text disabled:hover:text-text-weak"
           >
-            <span className="line-clamp-4 whitespace-pre-wrap">{quote.text}</span>
+            <MarkdownPreview content={quote.text} lines={4} />
             {quote.page !== undefined ? <span className="text-[10px]">p.{quote.page}</span> : null}
           </button>
         ) : null}
         {reasoning !== null ? (
           <details className="mb-1 text-[12px] text-text-weak" open={thinking}>
             <summary className="cursor-pointer select-none">{thinking ? "Thinking…" : "Reasoning"}</summary>
-            <div className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-2">{reasoning}</div>
+            <MarkdownPreview content={reasoning} className="mt-1 border-l-2 border-border pl-2" />
           </details>
         ) : null}
         {answer ? (

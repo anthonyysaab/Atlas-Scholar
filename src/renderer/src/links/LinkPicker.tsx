@@ -4,6 +4,7 @@ import { shortDocLabel } from "@shared/docLabel";
 import { fuzzyScoreAny } from "@shared/fuzzy";
 import { foldConceptKey } from "@shared/links/normalize";
 import { Modal } from "@renderer/components/Modal";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { useAppStore, type LinkPickerRequest } from "@renderer/state/appStore";
 import { useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
@@ -121,11 +122,12 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
   return (
     <div className="flex flex-col gap-2 p-3">
       <div className="rounded border border-border bg-bg-subtle px-2 py-1.5 text-[12px] text-text-weak">
-        <div className="mb-0.5 text-[10px] uppercase tracking-wide">
+        <div className="mb-0.5 truncate text-[10px] uppercase tracking-wide" title={passage.docPath}>
           {shortDocLabel(passage.docPath)}
           {passage.page !== undefined ? ` · p.${passage.page}` : ""}
+          {passage.title ? ` · ${passage.title}` : ""}
         </div>
-        <div className="line-clamp-3 whitespace-pre-wrap text-text">{passage.quote}</div>
+        <MarkdownPreview content={passage.quote} lines={3} className="text-text" />
       </div>
       <input
         data-autofocus
@@ -194,7 +196,7 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
                       {option.hit.docName}
                       {option.hit.page !== undefined ? ` p.${option.hit.page}` : ""}
                     </span>
-                    <span className="line-clamp-2 min-w-0 flex-1">{option.hit.text}</span>
+                    <MarkdownPreview content={option.hit.text} lines={2} className="min-w-0 flex-1" />
                   </>
                 )}
               </button>

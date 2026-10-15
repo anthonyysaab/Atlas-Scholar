@@ -90,7 +90,9 @@ export const IPC = {
     setBounds: "browser:setBounds",
     setVisible: "browser:setVisible",
     current: "browser:current",
-    state: "browser:state"
+    state: "browser:state",
+    selection: "browser:selection",
+    saveRequest: "browser:saveRequest"
   },
   links: {
     graph: "links:graph",
@@ -118,6 +120,28 @@ export const IPC = {
     bookmarksAdd: "workspace:bookmarks:add",
     bookmarksRemove: "workspace:bookmarks:remove",
     sessionGet: "workspace:session:get",
-    sessionSet: "workspace:session:set"
+    sessionSet: "workspace:session:set",
+    recentList: "workspace:recent:list",
+    recentRemove: "workspace:recent:remove",
+    recentClear: "workspace:recent:clear"
+  },
+  library: {
+    state: "library:state",
+    recent: "library:recent",
+    forgetRecent: "library:forgetRecent",
+    pickFolder: "library:pickFolder",
+    create: "library:create",
+    open: "library:open",
+    files: "library:files",
+    rescan: "library:rescan",
+    import: "library:import",
+    importDialog: "library:importDialog",
+    reveal: "library:reveal",
+    outsideWithData: "library:outsideWithData",
+    migrationPlan: "library:migration:plan",
+    migrationRun: "library:migration:run",
+    findText: "library:findText",
+    changed: "library:changed",
+    findProgress: "library:findProgress"
   }
 } as const;

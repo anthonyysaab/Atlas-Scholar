@@ -1,10 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { Anchor, Annotation, AnnotationKind } from "@shared/types";
+import { pathKey } from "@shared/docLabel";
+import { writeJsonAtomic } from "./library/atomic";
+import { docKey, IDENTITY_CODEC, isLibPath, type PathCodec, type PathMove } from "./library/paths";
 import { asArray, asRecord, asString } from "./providers/json";
 
-export type AnnotationStorage = "sidecar" | "fallback" | "none";
+/**
+ * `library`: a library document's annotations in `.assistant/annotations/<docKey>.json`.
+ * `sidecar`: next to an outside document (D8). `fallback`: in the fallback folder because the
+ * document's folder is read-only.
+ */
+export type AnnotationStorage = "library" | "sidecar" | "fallback" | "none";
 
 /**
  * Runtime-only marker attached to returned annotations so the renderer can tell the user the
@@ -12,7 +20,7 @@ export type AnnotationStorage = "sidecar" | "fallback" | "none";
  */
 export type TaggedAnnotation = Annotation & { storageFallback?: boolean };
 
-interface SidecarFile {
+export interface SidecarFile {
   version: 1;
   docPath: string;
   fileHash: string;
@@ -120,7 +128,7 @@ export async function resolveFileHash(path: string): Promise<string | null> {
   }
 }
 
-async function readSidecar(path: string): Promise<SidecarFile | null> {
+export async function readSidecar(path: string): Promise<SidecarFile | null> {
   let text: string;
   try {
     text = await fs.readFile(path, "utf8");
@@ -147,22 +155,29 @@ async function readSidecar(path: string): Promise<SidecarFile | null> {
   };
 }
 
-/** Temp-write then rename so a crash mid-write cannot truncate the existing sidecar. */
-async function atomicWrite(target: string, payload: SidecarFile): Promise<void> {
-  await fs.mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  await fs.rename(temp, target);
-}
-
 function withFallback(item: Annotation): TaggedAnnotation {
   return { ...item, storageFallback: true };
 }
 
+export interface AnnotationStoreOptions {
+  codec?: PathCodec;
+  /** `.assistant/annotations`: where library documents keep their annotations. Absent for legacy. */
+  libraryDir?: string;
+}
+
 export class SidecarAnnotationStore {
   private readonly docPathById = new Map<string, string>();
+  private readonly queues = new Map<string, Promise<unknown>>();
+  private readonly codec: PathCodec;
+  private readonly libraryDir: string | undefined;
 
-  constructor(private readonly fallbackDir: string) {}
+  constructor(
+    private readonly fallbackDir: string,
+    options: AnnotationStoreOptions = {}
+  ) {
+    this.codec = options.codec ?? IDENTITY_CODEC;
+    this.libraryDir = options.libraryDir;
+  }
 
   private primaryPath(docPath: string): string {
     return `${docPath}.annotations.json`;
@@ -172,40 +187,112 @@ export class SidecarAnnotationStore {
     return join(this.fallbackDir, `${sanitizeName(key)}.json`);
   }
 
+  /** Library documents keep annotations inside the library, never next to the PDF. */
+  libraryFile(docPath: string): string | null {
+    if (!this.libraryDir) return null;
+    const stored = this.codec.toStored(docPath);
+    return isLibPath(stored) ? join(this.libraryDir, `${docKey(stored)}.json`) : null;
+  }
+
+  /** Read-modify-write cycles on one document run in order. */
+  private serialize<T>(docPath: string, task: () => Promise<T>): Promise<T> {
+    const key = pathKey(docPath);
+    const run = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(task);
+    const tail = run.catch(() => undefined);
+    this.queues.set(key, tail);
+    void tail.then(() => {
+      if (this.queues.get(key) === tail) this.queues.delete(key);
+    });
+    return run;
+  }
+
+  async flush(): Promise<void> {
+    await Promise.all([...this.queues.values()]);
+  }
+
+  /**
+   * Where a document's annotations are read from: the library file, else a sidecar next to the
+   * document (legacy sidecars of library documents are adopted on the next write), else the
+   * fallback folder.
+   */
+  private async readSource(docPath: string, currentHash: string | null): Promise<{ raw: SidecarFile | null; storage: AnnotationStorage }> {
+    const libraryFile = this.libraryFile(docPath);
+    if (libraryFile) {
+      const library = await readSidecar(libraryFile);
+      if (library) return { raw: library, storage: "library" };
+    }
+    const primary = await readSidecar(this.primaryPath(docPath));
+    if (primary) return { raw: primary, storage: "sidecar" };
+    const fallback = await readSidecar(this.fallbackPath(currentHash ?? docPath));
+    if (fallback) return { raw: fallback, storage: "fallback" };
+    return { raw: null, storage: "none" };
+  }
+
   private async load(docPath: string): Promise<LoadedSidecar> {
     const currentHash = await resolveFileHash(docPath);
-    const primary = await readSidecar(this.primaryPath(docPath));
-    let raw = primary;
-    let storage: AnnotationStorage = primary ? "sidecar" : "none";
-    if (!raw) {
-      const fallback = await readSidecar(this.fallbackPath(currentHash ?? docPath));
-      if (fallback) {
-        raw = fallback;
-        storage = "fallback";
-      }
-    }
+    const { raw, storage } = await this.readSource(docPath, currentHash);
     const storedHash = raw?.fileHash ?? null;
     const stale = currentHash !== null && storedHash !== null && storedHash !== currentHash;
-    let items = (raw?.items ?? []).map((item) => ({ ...item }));
+    let items = (raw?.items ?? []).map((item) => ({ ...item, docPath }));
     if (stale) items = items.map((item) => ({ ...item, stale: true }));
-    if (storage === "fallback") items = items.map(withFallback);
+    if (storage === "fallback" && !this.libraryFile(docPath)) items = items.map(withFallback);
     return { items, currentHash, storedHash, storage };
   }
 
   private async save(docPath: string, items: Annotation[], fileHash: string): Promise<AnnotationStorage> {
+    const stored = this.codec.toStored(docPath);
     const payload: SidecarFile = {
       version: 1,
-      docPath,
+      docPath: stored,
       fileHash,
-      items: items.map(toPersisted)
+      items: items.map((item) => ({ ...toPersisted(item), docPath: stored }))
     };
+    const libraryFile = this.libraryFile(docPath);
+    if (libraryFile) {
+      await writeJsonAtomic(libraryFile, payload);
+      return "library";
+    }
     try {
-      await atomicWrite(this.primaryPath(docPath), payload);
+      await writeJsonAtomic(this.primaryPath(docPath), payload);
       return "sidecar";
     } catch {
-      await atomicWrite(this.fallbackPath(fileHash), payload);
+      await writeJsonAtomic(this.fallbackPath(fileHash), payload);
       return "fallback";
     }
+  }
+
+  /** The persisted file for a document (migration/import), with runtime paths. */
+  async exportFor(docPath: string): Promise<SidecarFile | null> {
+    const { raw } = await this.readSource(docPath, await resolveFileHash(docPath));
+    return raw ? { ...raw, docPath, items: raw.items.map((item) => ({ ...item, docPath })) } : null;
+  }
+
+  /**
+   * Bring annotations along when documents move into or within the library: merged into the
+   * destination's library file (existing ids win). Sources outside the library are only read.
+   */
+  async relocate(moves: readonly PathMove[]): Promise<number> {
+    let moved = 0;
+    for (const move of moves) {
+      const target = this.libraryFile(move.to);
+      if (!target) continue;
+      moved += await this.serialize(move.to, async () => {
+        const source = await this.exportFor(move.from);
+        if (!source || source.items.length === 0) return 0;
+        const existing = await readSidecar(target);
+        const ids = new Set((existing?.items ?? []).map((item) => item.id));
+        const items = [
+          ...(existing?.items ?? []),
+          ...source.items.filter((item) => !ids.has(item.id))
+        ];
+        await this.save(move.to, items, existing?.fileHash ?? source.fileHash);
+        const from = this.libraryFile(move.from);
+        if (from && from !== target) await fs.rm(from, { force: true });
+        for (const [id, path] of this.docPathById) if (pathKey(path) === pathKey(move.from)) this.docPathById.set(id, move.to);
+        return 1;
+      });
+    }
+    return moved;
   }
 
   async list(docPath: string): Promise<Annotation[]> {
@@ -214,7 +301,11 @@ export class SidecarAnnotationStore {
     return loaded.items;
   }
 
-  async add(input: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation> {
+  add(input: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation> {
+    return this.serialize(input.docPath, () => this.addNow(input));
+  }
+
+  private async addNow(input: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation> {
     const { docPath } = input;
     const currentHash = await resolveFileHash(docPath);
     if (currentHash === null) {
@@ -240,12 +331,17 @@ export class SidecarAnnotationStore {
     return storage === "fallback" ? withFallback(annotation) : annotation;
   }
 
-  async update(
+  update(id: string, patch: Partial<Pick<Annotation, "note" | "color">>): Promise<Annotation> {
+    const docPath = this.docPathById.get(id);
+    if (!docPath) return Promise.reject(new Error(`Unknown annotation: ${id}`));
+    return this.serialize(docPath, () => this.updateNow(docPath, id, patch));
+  }
+
+  private async updateNow(
+    docPath: string,
     id: string,
     patch: Partial<Pick<Annotation, "note" | "color">>
   ): Promise<Annotation> {
-    const docPath = this.docPathById.get(id);
-    if (!docPath) throw new Error(`Unknown annotation: ${id}`);
     const loaded = await this.load(docPath);
     const existing = loaded.items.find((item) => item.id === id);
     if (!existing) throw new Error(`Unknown annotation: ${id}`);
@@ -259,9 +355,13 @@ export class SidecarAnnotationStore {
     return storage === "fallback" ? withFallback(updated) : updated;
   }
 
-  async remove(id: string): Promise<void> {
+  remove(id: string): Promise<void> {
     const docPath = this.docPathById.get(id);
-    if (!docPath) throw new Error(`Unknown annotation: ${id}`);
+    if (!docPath) return Promise.reject(new Error(`Unknown annotation: ${id}`));
+    return this.serialize(docPath, () => this.removeNow(docPath, id));
+  }
+
+  private async removeNow(docPath: string, id: string): Promise<void> {
     const loaded = await this.load(docPath);
     if (!loaded.items.some((item) => item.id === id)) throw new Error(`Unknown annotation: ${id}`);
     const next = loaded.items.filter((item) => item.id !== id).map(toPersisted);

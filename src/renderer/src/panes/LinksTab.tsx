@@ -10,6 +10,7 @@ import { openPassage } from "@renderer/lib/openPassage";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { ensureLinksSubscription, useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 const LocalGraph = lazy(() => import("@renderer/links/LocalGraph"));
 
@@ -142,7 +143,7 @@ export function LinksTab() {
                       {other.page !== undefined ? ` p.${other.page}` : ""}
                     </span>
                   </span>
-                  <span className="line-clamp-2 text-text-weak">{other.quote}</span>
+                  <MarkdownPreview content={other.quote} lines={2} className="text-text-weak" />
                 </button>
                 <button
                   type="button"

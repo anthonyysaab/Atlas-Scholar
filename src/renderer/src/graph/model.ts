@@ -1,5 +1,6 @@
 import type { EdgeKind, LinksGraph } from "@shared/types";
-import { labelsFor, samePath } from "@shared/docLabel";
+import { labelsFor, pathKey } from "@shared/docLabel";
+import { isWebUrl, webHost } from "@shared/webPassage";
 
 export type NodeKind = "concept" | "passage";
 
@@ -11,6 +12,8 @@ export interface GraphNode {
   docPath?: string;
   page?: number;
   quote?: string;
+  /** Web excerpts: the page title. */
+  title?: string;
   stale?: boolean;
   /** Index into the document palette; concepts use -1. */
   colorIndex: number;
@@ -29,10 +32,12 @@ export interface GraphLink {
 }
 
 export interface GraphDoc {
+  /** A document path, or `https://<host>` standing for every excerpt from that site. */
   docPath: string;
   label: string;
   colorIndex: number;
   passages: number;
+  web?: boolean;
 }
 
 export interface GraphData {
@@ -52,22 +57,31 @@ export interface BuildOptions {
   only?: ReadonlySet<string> | null;
 }
 
-/** Documents in first-linked order, so each keeps its colour as the graph grows. */
+/** What a passage is coloured and filtered by: its document, or for web excerpts its site. */
+export function docGroupKey(path: string): string {
+  return isWebUrl(path) ? `web:${webHost(path).toLowerCase()}` : pathKey(path);
+}
+
+/** Documents (and sites) in first-linked order, so each keeps its colour as the graph grows. */
 export function graphDocs(graph: LinksGraph): GraphDoc[] {
-  const ordered: string[] = [];
+  const ordered: { key: string; docPath: string; web: boolean }[] = [];
   const counts = new Map<string, number>();
   const sorted = [...graph.passages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   for (const passage of sorted) {
-    const key = ordered.find((path) => samePath(path, passage.docPath)) ?? passage.docPath;
-    if (!counts.has(key)) ordered.push(key);
+    const key = docGroupKey(passage.docPath);
+    if (!counts.has(key)) {
+      const web = isWebUrl(passage.docPath);
+      ordered.push({ key, docPath: web ? `https://${webHost(passage.docPath)}` : passage.docPath, web });
+    }
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const labels = labelsFor(ordered);
-  return ordered.map((docPath, colorIndex) => ({
-    docPath,
-    label: labels.get(docPath) ?? docPath,
+  const labels = labelsFor(ordered.filter((entry) => !entry.web).map((entry) => entry.docPath));
+  return ordered.map((entry, colorIndex) => ({
+    docPath: entry.docPath,
+    label: entry.web ? webHost(entry.docPath) : (labels.get(entry.docPath) ?? entry.docPath),
     colorIndex,
-    passages: counts.get(docPath) ?? 0
+    passages: counts.get(entry.key) ?? 0,
+    ...(entry.web ? { web: true } : {})
   }));
 }
 
@@ -114,7 +128,7 @@ function rawLinks(graph: LinksGraph): GraphLink[] {
  * those concepts appear (and directly related passages). Depth 2: one more concept hop from there.
  */
 export function localSubgraph(graph: LinksGraph, docPath: string, depth: 1 | 2): Set<string> {
-  const seeds = graph.passages.filter((passage) => samePath(passage.docPath, docPath)).map((passage) => passage.id);
+  const seeds = graph.passages.filter((passage) => pathKey(passage.docPath) === pathKey(docPath)).map((passage) => passage.id);
   if (seeds.length === 0) return new Set();
   return neighbourhood(rawLinks(graph), seeds, depth * 2);
 }
@@ -126,9 +140,10 @@ function passageLabel(quote: string): string {
 
 export function buildGraphData(graph: LinksGraph, options: BuildOptions = {}): GraphData {
   const docs = graphDocs(graph);
-  const colorOf = (path: string): number => docs.find((doc) => samePath(doc.docPath, path))?.colorIndex ?? 0;
+  const colorOf = (path: string): number => docs.find((doc) => docGroupKey(doc.docPath) === docGroupKey(path))?.colorIndex ?? 0;
   const hidden = options.hiddenDocs ?? new Set<string>();
-  const isHidden = (path: string): boolean => [...hidden].some((entry) => samePath(entry, path));
+  const hiddenKeys = new Set([...hidden].map(docGroupKey));
+  const isHidden = (path: string): boolean => hiddenKeys.has(docGroupKey(path));
 
   const visiblePassages = graph.passages.filter((passage) => !isHidden(passage.docPath));
   const passageIds = new Set(visiblePassages.map((passage) => passage.id));
@@ -184,6 +199,7 @@ export function buildGraphData(graph: LinksGraph, options: BuildOptions = {}): G
         docPath: passage.docPath,
         ...(passage.page !== undefined ? { page: passage.page } : {}),
         quote: passage.quote,
+        ...(passage.title ? { title: passage.title } : {}),
         ...(passage.stale ? { stale: true } : {}),
         colorIndex: colorOf(passage.docPath),
         degree: 0

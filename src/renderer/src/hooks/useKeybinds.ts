@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { openSettings, switchPanelTab, togglePalette, togglePanel, toggleSidebar } from "@renderer/lib/commands";
+import { openSettings, openSidebar, switchPanelTab, togglePalette, togglePanel, toggleSidebar } from "@renderer/lib/commands";
+import { FIND_LIBRARY_EVENT } from "@renderer/library/LibraryFind";
 import { openViaDialog } from "@renderer/lib/openFiles";
 import { openConceptGraph } from "@renderer/links/actions";
 import { useAppStore } from "@renderer/state/appStore";
@@ -81,7 +82,12 @@ export function useKeybinds(): void {
         }
         case "f":
           event.preventDefault();
-          window.dispatchEvent(new CustomEvent("ra:find"));
+          if (event.shiftKey) {
+            void openSidebar().then(() => requestAnimationFrame(() => window.dispatchEvent(new CustomEvent(FIND_LIBRARY_EVENT))));
+            break;
+          }
+          // Find targets the document; the graph tab in front hides it.
+          if (useAppStore.getState().centerView !== "graph") window.dispatchEvent(new CustomEvent("ra:find"));
           break;
         case "s":
           event.preventDefault();

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Concept } from "@shared/types";
 import { labelsFor, samePath } from "@shared/docLabel";
+import { isWebUrl } from "@shared/webPassage";
 import { Icon } from "@renderer/components/Icon";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { openPassage } from "@renderer/lib/openPassage";
 import { useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
@@ -15,6 +17,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
   const graph = useLinksStore((state) => state.graph);
   const [name, setName] = useState(concept.name);
   const [note, setNote] = useState(concept.note ?? "");
+  const [editingNote, setEditingNote] = useState(false);
   const [mergeQuery, setMergeQuery] = useState("");
 
   useEffect(() => {
@@ -98,20 +101,40 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
           ))}
         </div>
       ) : null}
-      <textarea
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        onBlur={() => void saveNote()}
-        rows={2}
-        placeholder="Your note on this concept…"
-        className="resize-y rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none focus:border-accent"
-      />
+      {editingNote || !note.trim() ? (
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          onFocus={() => setEditingNote(true)}
+          onBlur={() => {
+            setEditingNote(false);
+            void saveNote();
+          }}
+          autoFocus={editingNote}
+          rows={editingNote ? 5 : 2}
+          placeholder="Your note on this concept (Markdown and $LaTeX$)…"
+          className="resize-y rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none focus:border-accent"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditingNote(true)}
+          className="rounded border border-transparent px-2 py-1 text-left text-xs text-text hover:border-border"
+          title="Click to edit"
+        >
+          <MarkdownPreview content={note} />
+        </button>
+      )}
       {ordered.length === 0 ? <p className="px-1 text-text-weak">No passages linked yet.</p> : null}
       {ordered.map(([docPath, entries]) => (
         <div key={docPath} className="flex flex-col gap-0.5">
-          <div className="px-1 text-[10px] uppercase tracking-wide text-text-weak" title={docPath}>
-            {labels.get(docPath) ?? docPath}
-            {currentDocPath && samePath(docPath, currentDocPath) ? " · this document" : ""}
+          <div className="flex items-center gap-1 px-1 text-[10px] uppercase tracking-wide text-text-weak" title={docPath}>
+            {isWebUrl(docPath) ? <Icon name="globe" className="h-3 w-3 shrink-0" /> : null}
+            <span className="truncate">
+              {labels.get(docPath) ?? docPath}
+              {isWebUrl(docPath) && entries[0]?.passage.title ? ` · ${entries[0].passage.title}` : ""}
+              {currentDocPath && samePath(docPath, currentDocPath) ? " · this document" : ""}
+            </span>
           </div>
           {entries.map(({ passage, edge }) => (
             <div key={edge.id} className="group flex items-start gap-1">
@@ -122,6 +145,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
                     docPath: passage.docPath,
                     ...(passage.page !== undefined ? { page: passage.page } : {}),
                     ...(passage.rects ? { rects: passage.rects } : {}),
+                    ...(passage.title ? { title: passage.title } : {}),
                     text: passage.quote
                   })
                 }
@@ -131,7 +155,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
                 title={passage.stale ? "The file changed since this was linked; the page may have moved." : passage.quote}
               >
                 <span className="shrink-0 text-accent">{passage.page !== undefined ? `p.${passage.page}` : "·"}</span>
-                <span className="line-clamp-2 text-text-weak">{passage.quote}</span>
+                <MarkdownPreview content={passage.quote} lines={2} className="min-w-0 flex-1 text-text-weak" />
               </button>
               <button
                 type="button"

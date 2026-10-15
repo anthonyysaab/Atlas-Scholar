@@ -1,13 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { Bookmark, SessionPosition, WorkspaceSession } from "@shared/types";
+import { samePath } from "@shared/docLabel";
+import { writeJsonAtomic } from "./library/atomic";
+import { IDENTITY_CODEC, pathMover, type PathCodec, type PathMove } from "./library/paths";
 import { asArray, asNumber, asRecord, asString } from "./providers/json";
 
-interface WorkspaceFile {
+export const MAX_RECENT_DOCS = 30;
+
+export interface WorkspaceFile {
   version: 1;
   bookmarks: Bookmark[];
   session: WorkspaceSession | null;
+  /** Recently opened documents, newest first. */
+  recent: string[];
+}
+
+function emptyFile(): WorkspaceFile {
+  return { version: 1, bookmarks: [], session: null, recent: [] };
 }
 
 function parseBookmark(value: unknown): Bookmark | null {
@@ -55,58 +65,152 @@ function parseSession(value: unknown): WorkspaceSession | null {
   };
 }
 
-export class WorkspaceStore {
-  constructor(private readonly filePath: string) {}
+function dedupePaths(paths: readonly string[]): string[] {
+  const result: string[] = [];
+  for (const path of paths) if (!result.some((entry) => samePath(entry, path))) result.push(path);
+  return result;
+}
 
-  private async read(): Promise<WorkspaceFile> {
-    try {
-      const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
-      const record = asRecord(parsed);
-      if (!record) return { version: 1, bookmarks: [], session: null };
-      const bookmarks = asArray(record["bookmarks"]).flatMap((entry) => {
-        const bookmark = parseBookmark(entry);
-        return bookmark ? [bookmark] : [];
-      });
-      return { version: 1, bookmarks, session: parseSession(record["session"]) };
-    } catch {
-      return { version: 1, bookmarks: [], session: null };
-    }
+export function parseWorkspaceFile(value: unknown): WorkspaceFile {
+  const record = asRecord(value);
+  if (!record) return emptyFile();
+  const bookmarks = asArray(record["bookmarks"]).flatMap((entry) => {
+    const bookmark = parseBookmark(entry);
+    return bookmark ? [bookmark] : [];
+  });
+  const recent = asArray(record["recent"]).filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  return { version: 1, bookmarks, session: parseSession(record["session"]), recent: dedupePaths(recent).slice(0, MAX_RECENT_DOCS) };
+}
+
+/** Every document path in the workspace file rewritten by `fn`. */
+export function mapWorkspacePaths(data: WorkspaceFile, fn: (path: string) => string): WorkspaceFile {
+  const session = data.session
+    ? {
+        ...data.session,
+        docs: data.session.docs.map(fn),
+        activeDocPath: data.session.activeDocPath === null ? null : fn(data.session.activeDocPath),
+        positions: Object.fromEntries(Object.entries(data.session.positions).map(([path, position]) => [fn(path), position]))
+      }
+    : null;
+  return {
+    ...data,
+    bookmarks: data.bookmarks.map((bookmark) => ({ ...bookmark, docPath: fn(bookmark.docPath) })),
+    session,
+    recent: data.recent.map(fn)
+  };
+}
+
+export class WorkspaceStore {
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly codec: PathCodec;
+
+  constructor(
+    private readonly filePath: string,
+    options: { codec?: PathCodec } = {}
+  ) {
+    this.codec = options.codec ?? IDENTITY_CODEC;
   }
 
-  /** Temp-write then rename so a crash mid-write cannot truncate the existing file. */
-  private async write(data: WorkspaceFile): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const temp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(temp, this.filePath);
+  private async read(): Promise<WorkspaceFile> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
+    } catch {
+      return emptyFile();
+    }
+    return mapWorkspacePaths(parseWorkspaceFile(raw), (path) => this.codec.fromStored(path));
+  }
+
+  private write(data: WorkspaceFile): Promise<void> {
+    return writeJsonAtomic(this.filePath, mapWorkspacePaths(data, (path) => this.codec.toStored(path)));
+  }
+
+  private mutate<T>(change: (data: WorkspaceFile) => T): Promise<T> {
+    const run = this.queue.then(async () => {
+      const data = await this.read();
+      const result = change(data);
+      await this.write(data);
+      return result;
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async snapshot(): Promise<WorkspaceFile> {
+    await this.queue;
+    return this.read();
+  }
+
+  async flush(): Promise<void> {
+    await this.queue;
+  }
+
+  exportData(): Promise<WorkspaceFile> {
+    return this.snapshot();
+  }
+
+  importData(data: WorkspaceFile): Promise<void> {
+    return this.mutate((current) => {
+      Object.assign(current, data);
+    });
+  }
+
+  relocate(moves: readonly PathMove[]): Promise<void> {
+    const move = pathMover(moves);
+    return this.mutate((data) => {
+      Object.assign(data, mapWorkspacePaths(data, move));
+      data.recent = dedupePaths(data.recent);
+    });
   }
 
   async listBookmarks(docPath: string): Promise<Bookmark[]> {
-    const data = await this.read();
-    return data.bookmarks.filter((bookmark) => bookmark.docPath === docPath);
+    const data = await this.snapshot();
+    return data.bookmarks.filter((bookmark) => samePath(bookmark.docPath, docPath));
   }
 
-  async addBookmark(input: Omit<Bookmark, "id" | "createdAt">): Promise<Bookmark> {
-    const data = await this.read();
-    const bookmark: Bookmark = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
-    data.bookmarks.push(bookmark);
-    await this.write(data);
-    return bookmark;
+  addBookmark(input: Omit<Bookmark, "id" | "createdAt">): Promise<Bookmark> {
+    return this.mutate((data) => {
+      const bookmark: Bookmark = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+      data.bookmarks.push(bookmark);
+      return bookmark;
+    });
   }
 
-  async removeBookmark(id: string): Promise<void> {
-    const data = await this.read();
-    data.bookmarks = data.bookmarks.filter((bookmark) => bookmark.id !== id);
-    await this.write(data);
+  removeBookmark(id: string): Promise<void> {
+    return this.mutate((data) => {
+      data.bookmarks = data.bookmarks.filter((bookmark) => bookmark.id !== id);
+    });
   }
 
   async getSession(): Promise<WorkspaceSession | null> {
-    return (await this.read()).session;
+    return (await this.snapshot()).session;
   }
 
-  async setSession(session: WorkspaceSession): Promise<void> {
-    const data = await this.read();
-    data.session = session;
-    await this.write(data);
+  setSession(session: WorkspaceSession): Promise<void> {
+    return this.mutate((data) => {
+      data.session = session;
+    });
+  }
+
+  async listRecent(): Promise<string[]> {
+    return (await this.snapshot()).recent;
+  }
+
+  addRecent(path: string): Promise<void> {
+    return this.mutate((data) => {
+      data.recent = [path, ...data.recent.filter((entry) => !samePath(entry, path))].slice(0, MAX_RECENT_DOCS);
+    });
+  }
+
+  removeRecent(path: string): Promise<void> {
+    return this.mutate((data) => {
+      data.recent = data.recent.filter((entry) => !samePath(entry, path));
+    });
+  }
+
+  clearRecent(): Promise<void> {
+    return this.mutate((data) => {
+      data.recent = [];
+    });
   }
 }

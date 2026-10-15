@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Citation, RelatedPassage, SelectionQuote, Thread } from "@shared/types";
-import { pathKey, samePath } from "@shared/docLabel";
+import { samePath } from "@shared/docLabel";
+import { writeJsonAtomic } from "@main/library/atomic";
+import { docKey, IDENTITY_CODEC, pathMover, touchesMoves, type PathCodec, type PathMove } from "@main/library/paths";
 import { asArray, asNumber, asRecord, asString, parseJson, parseRects } from "@main/providers/json";
 
 const THREAD_ID_RE = /^[a-zA-Z0-9._-]+$/;
@@ -100,9 +101,35 @@ export function parseThread(value: unknown): Thread | null {
   };
 }
 
-/** Filesystem-safe, case-insensitive on Windows: two spellings of one file share a folder. */
-export function docKey(docPath: string): string {
-  return createHash("sha256").update(pathKey(docPath)).digest("hex").slice(0, 32);
+export { docKey };
+
+/** The thread's own document and every other document its citations and related passages name. */
+export function mapThreadPaths(thread: Thread, fn: (path: string) => string): Thread {
+  return {
+    ...thread,
+    docPath: fn(thread.docPath),
+    messages: thread.messages.map((message) => ({
+      ...message,
+      ...(message.citations
+        ? {
+            citations: message.citations.map((citation) =>
+              citation.docPath ? { ...citation, docPath: fn(citation.docPath) } : citation
+            )
+          }
+        : {}),
+      ...(message.related ? { related: message.related.map((entry) => ({ ...entry, docPath: fn(entry.docPath) })) } : {})
+    }))
+  };
+}
+
+function threadPaths(thread: Thread): string[] {
+  return [
+    thread.docPath,
+    ...thread.messages.flatMap((message) => [
+      ...(message.citations ?? []).flatMap((citation) => (citation.docPath ? [citation.docPath] : [])),
+      ...(message.related ?? []).map((entry) => entry.docPath)
+    ])
+  ];
 }
 
 function sortKey(thread: Thread): string {
@@ -116,12 +143,19 @@ function sortKey(thread: Thread): string {
  */
 export class ThreadStore {
   private readonly pending = new Map<string, Promise<void>>();
+  private readonly codec: PathCodec;
 
-  constructor(private readonly dir: string) {}
+  constructor(
+    private readonly dir: string,
+    options: { codec?: PathCodec } = {}
+  ) {
+    this.codec = options.codec ?? IDENTITY_CODEC;
+  }
 
+  /** Keyed by the stored path, so a library's thread folders survive the library moving. */
   private docDir(docPath: string): string {
     if (!docPath) throw new Error("Thread has no document path");
-    return join(this.dir, docKey(docPath));
+    return join(this.dir, docKey(this.codec.toStored(docPath)));
   }
 
   private threadFile(docPath: string, threadId: string): string {
@@ -140,15 +174,33 @@ export class ThreadStore {
     return next;
   }
 
-  async save(thread: Thread): Promise<void> {
+  async save(thread: Thread, options: { keepUpdatedAt?: boolean } = {}): Promise<void> {
     const file = this.threadFile(thread.docPath, thread.id);
-    const stored: Thread = { ...thread, updatedAt: new Date().toISOString() };
-    await this.serialize(file, async () => {
-      await mkdir(this.docDir(thread.docPath), { recursive: true });
-      const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-      await writeFile(temp, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
-      await rename(temp, file);
-    });
+    const stamped: Thread = options.keepUpdatedAt ? thread : { ...thread, updatedAt: new Date().toISOString() };
+    const stored = mapThreadPaths(stamped, (path) => this.codec.toStored(path));
+    await this.serialize(file, () => writeJsonAtomic(file, stored));
+  }
+
+  async flush(): Promise<void> {
+    await Promise.all([...this.pending.values()].map((entry) => entry.catch(() => undefined)));
+  }
+
+  /**
+   * Re-point threads after documents moved: a moved document's threads change folder, and any
+   * thread citing a moved document is rewritten. Returns how many thread files changed.
+   */
+  async relocate(moves: readonly PathMove[]): Promise<number> {
+    if (moves.length === 0) return 0;
+    const move = pathMover(moves);
+    let changed = 0;
+    for (const thread of await this.list()) {
+      if (!touchesMoves(threadPaths(thread), moves)) continue;
+      const next = mapThreadPaths(thread, move);
+      await this.save(next, { keepUpdatedAt: true });
+      if (this.docDir(next.docPath) !== this.docDir(thread.docPath)) await this.remove(thread.docPath, thread.id);
+      changed += 1;
+    }
+    return changed;
   }
 
   private async readDir(dir: string): Promise<Thread[]> {
@@ -163,7 +215,7 @@ export class ThreadStore {
       if (!file.endsWith(".json")) continue;
       try {
         const thread = parseThread(parseJson(await readFile(join(dir, file), "utf8")));
-        if (thread) threads.push(thread);
+        if (thread) threads.push(mapThreadPaths(thread, (path) => this.codec.fromStored(path)));
       } catch {
         // A corrupt file must not hide the document's other threads.
       }

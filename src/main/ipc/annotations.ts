@@ -1,8 +1,6 @@
-import { app } from "electron";
-import { join } from "node:path";
 import { IPC } from "@shared/channels";
 import type { Anchor, Annotation, AnnotationKind } from "@shared/types";
-import { SidecarAnnotationStore } from "@main/annotations";
+import { getAnnotationStore } from "@main/library/scopedStores";
 import { asArray, asRecord, asString } from "@main/providers/json";
 import { handle } from "./registry";
 
@@ -61,12 +59,7 @@ function parsePatch(value: unknown): Partial<Pick<Annotation, "note" | "color">>
   return patch;
 }
 
-let store: SidecarAnnotationStore | null = null;
-
-function getStore(): SidecarAnnotationStore {
-  if (!store) store = new SidecarAnnotationStore(join(app.getPath("userData"), "annotations"));
-  return store;
-}
+const getStore = getAnnotationStore;
 
 export function registerAnnotationsIpc(): void {
   handle(IPC.annotations.list, (docPath: unknown) => getStore().list(String(docPath)));

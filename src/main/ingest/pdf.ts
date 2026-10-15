@@ -67,6 +67,8 @@ export const pdfExtractor: Extractor = {
           if (item.hasEOL) raw += "\n";
         }
         pages.push({ index, text: normalizeText(raw) });
+        // Extraction runs in the main process; yielding between pages keeps IPC (and the UI) responsive.
+        await new Promise((resolve) => setImmediate(resolve));
       }
 
       const outline: OutlineEntry[] = [];

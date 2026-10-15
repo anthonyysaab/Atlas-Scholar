@@ -1,6 +1,7 @@
 import type { Thread } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { exportThreadMarkdown, listThreads, loadThreads, removeThread, saveThread } from "@main/llm/threads";
+import { resolveImportAlias } from "@main/library/service";
 import { parseThread } from "@main/llm/threadStore";
 import { handle } from "./registry";
 
@@ -16,7 +17,11 @@ function asText(value: unknown, name: string): string {
 }
 
 export function registerThreadsIpc(): void {
-  handle(IPC.threads.save, async (thread: unknown) => saveThread(asThread(thread)));
+  handle(IPC.threads.save, async (thread: unknown) => {
+    const parsed = asThread(thread);
+    // A reply still streaming when its document was imported lands on the library copy.
+    await saveThread({ ...parsed, docPath: resolveImportAlias(parsed.docPath) });
+  });
   handle(IPC.threads.load, async (docPath: unknown) => loadThreads(asText(docPath, "docPath")));
   handle(IPC.threads.list, async () => listThreads());
   handle(IPC.threads.remove, async (docPath: unknown, threadId: unknown) =>

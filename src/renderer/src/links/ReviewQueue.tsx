@@ -6,6 +6,7 @@ import { openPassage } from "@renderer/lib/openPassage";
 import { extractionFor, useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
 import { startConceptExtraction } from "./actions";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -115,7 +116,7 @@ function ProposalRow({
                 className="flex w-full gap-1.5 rounded px-1 text-left text-[11px] hover:bg-bg-subtle"
               >
                 <span className="shrink-0 text-accent">{passage.page !== undefined ? `p.${passage.page}` : "·"}</span>
-                <span className="line-clamp-2 text-text-weak">{passage.quote}</span>
+                <MarkdownPreview content={passage.quote} lines={2} className="min-w-0 flex-1 text-text-weak" />
               </button>
             </li>
           ))}

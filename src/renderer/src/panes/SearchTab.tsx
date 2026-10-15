@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@renderer/components/Icon";
+import { saveCurrentPage } from "@renderer/links/webCapture";
 import { useBrowserBounds } from "./useBrowserBounds";
 import { toUrlOrSearch } from "./webSearch";
 
@@ -77,6 +78,16 @@ export function SearchTab() {
             />
           </div>
         </form>
+        <button
+          type="button"
+          onClick={() => void saveCurrentPage()}
+          disabled={!/^https?:/i.test(state.url)}
+          className="flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1 text-[11px] text-text-weak hover:bg-panel hover:text-text disabled:opacity-30"
+          title="Save the selected text (or this page) to the concept graph. You can also right-click a selection."
+        >
+          <Icon name="link" className="h-3.5 w-3.5" />
+          Save to graph
+        </button>
       </div>
 
       <div ref={placeholderRef} className="relative min-h-0 flex-1 bg-bg">

@@ -10,6 +10,7 @@ import { toast } from "@renderer/state/toastStore";
 import { CardEditor } from "@renderer/study/CardEditor";
 import { addSelectionToFlashcards, openFlashcardSource } from "@renderer/study/flashcardActions";
 import { ReviewSession } from "@renderer/study/ReviewSession";
+import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 const button = "rounded border border-border px-2 py-0.5 text-xs text-text hover:bg-panel disabled:opacity-40";
 const quiet = "rounded p-1 text-text-weak hover:text-text";
@@ -170,7 +171,7 @@ function SourcesSection() {
                     {fileName(passage.docPath)}
                     {passage.page !== undefined ? ` · p.${passage.page}` : ""}
                   </span>
-                  <span className="line-clamp-2">{passage.text}</span>
+                  <MarkdownPreview content={passage.text} lines={2} />
                 </span>
                 <button type="button" onClick={() => removePassage(index)} className={`${quiet} opacity-0 group-hover:opacity-100`} title="Remove">
                   <Icon name="close" className="h-3 w-3" />

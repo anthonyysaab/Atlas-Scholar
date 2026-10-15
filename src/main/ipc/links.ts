@@ -1,15 +1,19 @@
-import { app } from "electron";
 import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { IPC } from "@shared/channels";
 import type { ConceptTarget, LinkInput, LinkSource, PassageDraft, ProposalPatch } from "@shared/types";
 import { emitToRenderer } from "@main/events";
-import { hashBytes } from "@main/ingest/extract";
 import { getSettings } from "@main/config/settings";
+import { onLibrarySwitch } from "@main/library/context";
+import { getLinksStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
-import { cancelExtraction, extractionStatus, setExtractDeps, startExtraction } from "@main/links/extractRunner";
-import { LinksStore, parseProposalPassages } from "@main/links/store";
+import {
+  cancelAllExtractions,
+  cancelExtraction,
+  extractionStatus,
+  setExtractDeps,
+  startExtraction
+} from "@main/links/extractRunner";
+import { parseProposalPassages } from "@main/links/store";
 import { asArray, asNumber, asRecord, asString, parseRects } from "@main/providers/json";
 import { setIndexCancelHook, setIndexReadyHook, setKnownConceptsProvider } from "@main/rag/index";
 import { vectorStore } from "@main/rag/vector-store";
@@ -18,34 +22,6 @@ import { handle } from "./registry";
 const LINK_SOURCES: readonly LinkSource[] = ["manual", "chat", "wikilink", "extracted"];
 const MAX_LINKS_PER_CALL = 50;
 
-let store: LinksStore | null = null;
-
-// Hashing a large PDF on every link would be wasteful; the file only changes when size/mtime do.
-const hashMemo = new Map<string, { key: string; hash: string }>();
-
-async function hashFile(path: string): Promise<string | undefined> {
-  try {
-    const info = await stat(path);
-    const key = `${info.size}:${info.mtimeMs}`;
-    const memo = hashMemo.get(path);
-    if (memo?.key === key) return memo.hash;
-    const hash = hashBytes(new Uint8Array(await readFile(path)));
-    hashMemo.set(path, { key, hash });
-    return hash;
-  } catch {
-    return undefined;
-  }
-}
-
-export function getLinksStore(): LinksStore {
-  if (!store) {
-    store = new LinksStore(join(app.getPath("userData"), "links.json"), {
-      onChange: (event) => emitToRenderer(IPC.links.changed, event),
-      hashFile
-    });
-  }
-  return store;
-}
 
 function requireString(value: unknown, what: string): string {
   if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid ${what}`);
@@ -69,9 +45,11 @@ function parsePassageDraft(value: unknown): PassageDraft | undefined {
   const page = asNumber(record?.["page"]);
   const rects = parseRects(record?.["rects"]);
   const chunkId = asString(record?.["chunkId"]);
+  const title = asString(record?.["title"]);
   return {
     docPath,
     quote,
+    ...(title ? { title } : {}),
     ...(page !== undefined ? { page } : {}),
     ...(rects.length > 0 ? { rects } : {}),
     ...(chunkId ? { chunkId } : {})
@@ -168,6 +146,7 @@ export function registerLinksIpc(): void {
     void startExtraction(getLinksStore(), index, { requested: opts.extractConcepts }).catch(() => undefined);
   });
   setIndexCancelHook((docPath) => cancelExtraction(docPath));
+  onLibrarySwitch(cancelAllExtractions);
 
   handle(ipc.graph, () => getLinksStore().graph());
   handle(ipc.conceptsCreate, (input: unknown) => getLinksStore().createConcept(parseConceptInput(input)));

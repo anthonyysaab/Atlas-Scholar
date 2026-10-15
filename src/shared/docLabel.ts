@@ -1,3 +1,5 @@
+import { isWebUrl, webHost } from "./webPassage";
+
 const MAX_LABEL_CHARS = 14;
 
 export function baseName(path: string): string {
@@ -16,6 +18,7 @@ function stem(path: string): string {
  * "logique cours.pdf" → "logique cours". Keeps whole separator-delimited tokens while they fit.
  */
 export function shortDocLabel(path: string): string {
+  if (isWebUrl(path)) return webHost(path);
   const full = stem(path).trim();
   if (full.length <= MAX_LABEL_CHARS) return full;
   const tokens = full.split(/(?=[_\- ])/);
@@ -39,16 +42,23 @@ export function labelsFor(paths: readonly string[]): Map<string, string> {
   const result = new Map<string, string>();
   for (const path of unique) {
     const label = shortDocLabel(path);
-    result.set(path, (counts.get(label) ?? 0) > 1 ? stem(path) : label);
+    // Pages of one site share its host as their label; only documents fall back to the full stem.
+    result.set(path, (counts.get(label) ?? 0) > 1 && !isWebUrl(path) ? stem(path) : label);
   }
   return result;
 }
 
 /**
  * One canonical spelling per file: Windows drive paths are case-insensitive, so they are
- * lowercased and slash direction is unified; POSIX paths keep their case.
+ * lowercased and slash direction is unified; POSIX paths keep their case. Library paths
+ * (`lib:<rel>`) compare case-insensitively and Unicode-normalized on every OS, since the library
+ * folder may be synced between systems; URLs are compared verbatim.
  */
 export function pathKey(path: string): string {
+  if (path.startsWith("lib:")) {
+    return `lib:${path.slice(4).replace(/\\/g, "/").replace(/\/+$/, "").normalize("NFC").toLowerCase()}`;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return path;
   const norm = path.replace(/\//g, "\\").replace(/\\+$/, "");
   return /^[a-zA-Z]:\\/.test(norm) ? norm.toLowerCase() : norm;
 }

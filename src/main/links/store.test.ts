@@ -215,3 +215,41 @@ describe("LinksStore proposals", () => {
     expect(renamed.name).toBe("Logique du 1er ordre");
   });
 });
+
+describe("LinksStore web excerpts", () => {
+  it("stores a URL passage with its title, never hashing it, and dedupes by URL and quote", async () => {
+    const asked: string[] = [];
+    const store = new LinksStore(file, {
+      hashFile: async (path) => {
+        asked.push(path);
+        return "sha256:x";
+      }
+    });
+    const url = "https://fr.wikipedia.org/wiki/Compacit%C3%A9";
+    const draft = { docPath: url, quote: "Un espace  compact", title: "Compacité — Wikipédia" };
+    const [first] = await store.link([{ source: "manual", concept: { name: "Compacité" }, passage: draft }]);
+    const [again] = await store.link([{ source: "manual", concept: { name: "Topologie" }, passage: { ...draft, title: undefined } }]);
+    expect(asked).toEqual([]);
+    expect(first?.passages[0]).toMatchObject({ docPath: url, quote: "Un espace  compact", title: "Compacité — Wikipédia" });
+    expect(first?.passages[0]?.contentHash).toBeUndefined();
+    expect(again?.passages[0]?.id).toBe(first?.passages[0]?.id);
+    const graph = await store.graph();
+    expect(graph.passages).toHaveLength(1);
+    expect(graph.passages[0]?.title).toBe("Compacité — Wikipédia");
+  });
+
+  it("keeps a web excerpt's paragraphs and full length so it can be read offline", async () => {
+    const store = makeStore();
+    const long = "word ".repeat(1000).trim();
+    const quote = `First  paragraph line.\r\n\r\n\r\nSecond paragraph.\n${long}`;
+    const [result] = await store.link([
+      { source: "manual", concept: { name: "C" }, passage: { docPath: "https://a.org/p", quote } }
+    ]);
+    const saved = result?.passages[0]?.quote ?? "";
+    expect(saved.startsWith("First  paragraph line.\n\nSecond paragraph.\nword word")).toBe(true);
+    expect(saved.length).toBeGreaterThan(4000);
+    const [pdf] = await store.link([{ source: "manual", concept: { name: "C" }, passage: { docPath: exam, quote: `a\n\nb ${long}` } }]);
+    expect(pdf?.passages[0]?.quote.startsWith("a b word")).toBe(true);
+    expect(pdf?.passages[0]?.quote.length).toBe(2000);
+  });
+});

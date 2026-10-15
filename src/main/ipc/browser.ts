@@ -8,6 +8,7 @@ import {
   browserNavigate,
   browserOpen,
   browserReload,
+  browserSelection,
   browserSetBounds,
   browserSetVisible,
   browserStop
@@ -38,4 +39,5 @@ export function registerBrowserIpc(): void {
   handle(IPC.browser.setBounds, async (value: unknown) => browserSetBounds(parseBounds(value)));
   handle(IPC.browser.setVisible, async (value: unknown) => browserSetVisible(value === true));
   handle(IPC.browser.current, async (): Promise<BrowserState> => browserCurrent());
+  handle(IPC.browser.selection, () => browserSelection());
 }

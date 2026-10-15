@@ -31,10 +31,29 @@ active theme (`src/main/titleBar.ts`). Overlays that can reach the top edge carr
 
 ## Library sidebar
 
-- List of **open documents** (tabs and multi-open), each with kind icon and dirty indicator.
-- **Recent files** (persisted in settings).
-- Actions: Open file…, Open recent, Remove.
-- Matches opencode's session list position and collapse behavior.
+Top to bottom:
+- **Header:** the library's name; its menu has Open another library…, Create a library…, the
+  recent libraries, Show library folder and Rescan folder.
+- **Import… / Open…:** Import copies documents into the library (originals untouched); Open
+  opens a file in place, without importing it.
+- **Notices** (when relevant): the library is also open on another computer; a sync service left
+  conflicting copies of its data.
+- **Find in library** box (Ctrl+Shift+F). While it has a query, results replace the tree: grouped
+  by document (hit count), then page, up to 3 snippets per page with the match in bold. A click
+  opens the document at that page with the PDF find bar on the query. "Extracting 12/37…" shows
+  while unread documents are being extracted; the query re-runs when they are done.
+- **Tree** of the library folder: folders first, natural sort, file counts, open documents marked,
+  the active document's folder revealed. Right-click shows a file in the folder. Dropping files on
+  a folder (or the tree) imports them there. Above ~2,000 rows only the visible rows are mounted.
+- **"N PDFs outside the library have notes or links"** card: copies them in, with their data.
+- **Outside library:** open and recent documents that are not in the library.
+- Settings at the bottom. Matches opencode's session list position and collapse behavior.
+
+Without an open library the window shows the **library gate** instead of the app: Create a
+library… (offering, when data from before libraries exists, a migration dialog that lists every
+referenced document as inside / outside / missing with checkboxes to copy outside PDFs in), Open a
+library…, recent libraries, and for a library that is no longer where it was: Retry, Locate moved
+library… (accepted only if the folder holds the same library id) and Forget it.
 
 ## Document pane
 
@@ -43,6 +62,16 @@ active theme (`src/main/titleBar.ts`). Overlays that can reach the top edge carr
 - Toolbar (contextual): PDF → zoom, fit, page nav, annotate toggle; text → save, format;
   image → zoom, fit.
 - Opening a file with no registered renderer shows the fallback meta view.
+- **Outside-library banner** above a document that is not in the library: "Not in your library"
+  with Import (disabled while an answer is streaming for it), Open library copy (when the same
+  bytes are already in the library) and dismiss. Opening an outside file whose bytes are already in
+  the library opens the library copy with a toast.
+- **PDF find bar** (Ctrl+F or the 🔍 toolbar button): top-right over the pages, pre-filled from
+  the selection; "3 / 41" (with "+" while pages are still being read); Enter / Shift+Enter step
+  through matches, scrolling the active one to about a third of the view; Esc closes it without
+  cancelling a chat answer. Every match is highlighted in pale yellow, the active one in orange.
+  Ctrl+F is ignored while the graph tab is in front. Links and citations that carry a quote but
+  no rects open the find bar on their opening words.
 
 ## Side panel (tabbed) — the opencode analog
 
@@ -87,6 +116,11 @@ Tabs, in order:
    - A non-URL query searches DuckDuckGo `?q=…` in-view; results are **not** opened in the OS browser.
    - The browser view is hidden automatically while a modal/overlay is open or the panel is
      collapsed (a `WebContentsView` composites above the DOM).
+   - **Save to graph** (toolbar button, or right-click a selection → "Save selection to graph";
+     without a selection, "Save this page to graph") opens the link picker for the excerpt (D21).
+     Web excerpts show with a globe and their site in the Links lists and the graph (one colour per
+     site). Opening one shows its **saved text** (works offline) with the page title and URL,
+     "Copy with source", and "Open source page", which loads the page here scrolled to the excerpt.
 
 (Bookmarks and Cards tabs sit between Annotations and Links.)
 
@@ -124,6 +158,14 @@ Located at the bottom of the **Chat** tab (not the document pane).
   local running/offline status, plus a quick "add local endpoint" form.
 - Streams; Stop button while generating.
 
+## Text rendering
+
+Everything the user saved or wrote renders as **Markdown with KaTeX math** (`$…$`, `$$…$$`), the
+same renderer as chat answers: passage quotes and web excerpts (graph, Links tab, link picker,
+review queue, link markers, chat quotes), concept notes (edited as text, shown rendered),
+annotation notes, flashcards, the model's reasoning and Markdown documents. Lists clamp long
+text to a few lines with a fade. One-line chips and tooltips stay plain text.
+
 ## Command palette & keybinds
 
 - `Ctrl+P` command palette (open file, switch panel tab, change model, re-index, toggle theme).
@@ -137,6 +179,7 @@ Located at the bottom of the **Chat** tab (not the document pane).
   - `L` (with a PDF selection) link the selection; `H` highlight it
   - `Ctrl+Enter` send message (focuses the Chat tab first if needed)
   - `Ctrl+F` find in document
+  - `Ctrl+Shift+F` find in library
   - `Ctrl+S` save (text files)
   - `Esc` cancel stream / clear selection
 

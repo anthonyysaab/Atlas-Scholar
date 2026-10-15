@@ -27,6 +27,7 @@ vi.mock("@main/ingest/extract", () => ({
 }));
 
 import { updateSettings } from "@main/config/settings";
+import { legacyContext, setCurrentLibrary } from "@main/library/context";
 import { indexDocument, libraryCache, queryDocument, searchLibraryText } from "./index";
 import { searchIndexes, type CachedIndex } from "./library";
 
@@ -52,6 +53,7 @@ function stubEmbeddings(): void {
 
 beforeEach(async () => {
   harness.userData = await mkdtemp(join(tmpdir(), "ra-library-"));
+  setCurrentLibrary(legacyContext(harness.userData));
   dirs.push(harness.userData);
   harness.docs.clear();
   libraryCache.clear();

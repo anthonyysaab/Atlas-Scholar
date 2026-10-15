@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { openViaDialog } from "@renderer/lib/openFiles";
 import { useFileWatch } from "@renderer/hooks/useFileWatch";
+import { ExternalDocBanner } from "@renderer/library/ExternalDocBanner";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { registerBuiltInRenderers } from "@renderer/viewer/builtins";
 import { resolveFileRenderer, type RendererViewProps } from "@renderer/viewer/registry";
@@ -85,5 +86,12 @@ function DocContent() {
     return <div className="flex h-full items-center justify-center bg-bg text-xs text-text-weak">Loading viewer…</div>;
   }
 
-  return <Viewer ref={doc.ref} docId={doc.id} />;
+  return (
+    <div className="flex h-full flex-col">
+      <ExternalDocBanner doc={doc} />
+      <div className="min-h-0 flex-1">
+        <Viewer ref={doc.ref} docId={doc.id} />
+      </div>
+    </div>
+  );
 }

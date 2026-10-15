@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import type { WorkspaceSession } from "@shared/types";
+import { samePath } from "@shared/docLabel";
 import { useAppStore } from "@renderer/state/appStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
 
 const SAVE_DEBOUNCE_MS = 600;
 let restored = false;
+let reloading = false;
 
 /** Reopen the documents from the previous run, restore the active tab and reading positions. */
 export async function restoreSession(): Promise<void> {
@@ -30,7 +32,7 @@ export async function restoreSession(): Promise<void> {
     } catch {
       continue;
     }
-    const position = session.positions[path];
+    const position = session.positions[path] ?? Object.entries(session.positions).find(([key]) => samePath(key, path))?.[1];
     if (position) viewState.setPosition(path, position);
     useAppStore.getState().openFile(ref);
   }
@@ -38,7 +40,7 @@ export async function restoreSession(): Promise<void> {
   if (session.activeDocPath) {
     const active = useAppStore
       .getState()
-      .docs.find((doc) => doc.ref.path === session.activeDocPath);
+      .docs.find((doc) => session.activeDocPath !== null && samePath(doc.ref.path, session.activeDocPath));
     if (active) useAppStore.getState().setActiveDoc(active.id);
   }
   if (session.graphOpen) {
@@ -50,7 +52,22 @@ export async function restoreSession(): Promise<void> {
   }
 }
 
+/**
+ * Save now and stop saving: the window is about to reload into another library, and a late save
+ * would write this library's tabs into that one.
+ */
+export async function prepareForReload(): Promise<void> {
+  await saveSession();
+  reloading = true;
+}
+
+/** The switch failed; keep saving into the current library. */
+export function cancelReload(): void {
+  reloading = false;
+}
+
 async function saveSession(): Promise<void> {
+  if (reloading) return;
   const { docs, activeDocId, graphTabOpen, centerView } = useAppStore.getState();
   const positions = useViewStateStore.getState().positions;
   const activeDoc = docs.find((doc) => doc.id === activeDocId);

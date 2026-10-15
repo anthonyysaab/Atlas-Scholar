@@ -1,8 +1,9 @@
 import { app } from "electron";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { isThemePref } from "@shared/themes";
 import type { ChatScope, GraphSettings, Settings, StoredProvider } from "@shared/types";
+import { writeJsonAtomic } from "@main/library/atomic";
 import { listConfiguredSecrets } from "./keyVault";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -151,8 +152,7 @@ async function persist(): Promise<void> {
   if (!cache) return;
   const toWrite: Partial<Settings> = { ...cache };
   delete toWrite.keysConfigured;
-  await mkdir(dirname(settingsPath()), { recursive: true });
-  await writeFile(settingsPath(), `${JSON.stringify(toWrite, null, 2)}\n`, "utf8");
+  await writeJsonAtomic(settingsPath(), toWrite);
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -172,11 +172,4 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
   });
   await persist();
   return getSettings();
-}
-
-export async function rememberRecentFile(path: string): Promise<void> {
-  const current = await loadCache();
-  const next = [path, ...(current.recentFiles ?? []).filter((p) => p !== path)].slice(0, MAX_RECENT_FILES);
-  cache = { ...current, recentFiles: next };
-  await persist();
 }

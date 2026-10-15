@@ -60,23 +60,45 @@ back.
   the page context.
 - No `remote`, no `webSecurity` disabling.
 
-## Storage locations (all under Electron `app.getPath('userData')`)
+## Storage locations (D19)
+
+Document data lives **in the open library**; only app-global configuration stays in userData.
 
 ```
+<library>/                         # any folder the user chose; move/zip/sync it as a unit
+  *.pdf, sub/folders/*.pdf          # the documents (imports are copies)
+  .assistant/
+    library.json                    # manifest {version, id, name, createdAt, createdWith}
+    catalog.json                    # files: relPath, size, mtime, lazy contentHash, missingSince
+    links.json  flashcards.json  workspace.json   # workspace: bookmarks, session, recent docs
+    threads/<docKey>/<threadId>.json
+    annotations/<docKey>.json       # library documents; annotations/external/ = read-only fallback
+    index/<hash>.json  cache/extract/<hash>.json   # regenerable; safe to exclude from sync
+    presence/<machine>.json  moves.journal.json  migration.json  README.txt
+
 userData/
-  settings.json           # non-secret settings (providers config minus keys, active models)
-  secrets/                # safeStorage-encrypted blobs, one per key
-  index/<fileHash>.json    # vector index per document content hash
-  cache/extract/<hash>.json# extracted text + chunk metadata cache
-  threads/<docKey>/<threadId>.json  # chat threads, one file each, grouped by hashed docPath
-  links.json               # 06: concepts, passages, edges, extraction review queue (app-wide)
-  flashcards.json          # decks and cards (app-wide)
-  workspace.json           # bookmarks + last session (incl. graph tab state)
-  logs/
+  settings.json            # non-secret settings (providers minus keys, models, ui, rag, graph)
+  secrets/                 # safeStorage-encrypted blobs, one per key
+  catalog/models.json      # model catalog
+  libraries.json           # {last, recent[], legacyMigratedTo?}
+  (links.json, threads/, index/, … from before libraries: read once by the migration, never written)
 ```
 
-Sidecar annotations are written **next to the document** (see `docs/interfaces.md`), not in
-userData, so they travel with the file.
+Inside `.assistant`, library documents are stored as `lib:<relPath>`; outside documents keep
+their absolute path (`docs/interfaces.md` §7). Translation happens only in main, at each store's
+read/write (`src/main/library/paths.ts`); the renderer and IPC always see absolute paths.
+`docKey` is `sha256(pathKey(storedPath))[:32]`, so thread folders survive the library moving.
+Outside documents' annotations stay in a sidecar next to the file (D8).
+
+**Library lifecycle (`src/main/library/service.ts`).** Opening a library resumes an interrupted
+relocation (`moves.journal.json`), loads and rescans the catalog (stat-only), starts a recursive
+watcher (500 ms debounce, ignoring `.assistant`, sidecars and temp files), writes a presence
+heartbeat, and cleans up old temp files. Moves detected by the catalog run `relocateAll`, which
+re-points every store through its own write queue and emits `library:changed` so open tabs
+follow. Switching: the renderer saves its session and stops saving; main clears the current
+context (late writes fail with `NoLibraryError`), runs the switch hooks (abort chats, indexing,
+extraction, the extract queue; close watchers; clear caches), drains every store queue, opens the
+new library and reloads the window.
 
 ## Data flow examples
 

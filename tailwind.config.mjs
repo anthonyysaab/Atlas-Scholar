@@ -11,7 +11,11 @@ export default {
         border: "var(--border)",
         text: "var(--text)",
         "text-weak": "var(--text-weak)",
-        accent: "var(--accent)",
+        // Themes set --accent as a hex string, so opacity modifiers (bg-accent/15) mix with transparent.
+        accent: ({ opacityValue }) =>
+          opacityValue === undefined || opacityValue === "1"
+            ? "var(--accent)"
+            : `color-mix(in srgb, var(--accent) calc(${opacityValue} * 100%), transparent)`,
         danger: "rgb(var(--danger-rgb) / <alpha-value>)",
         warning: "rgb(var(--warning-rgb) / <alpha-value>)",
         "anno-yellow": "var(--anno-yellow)",

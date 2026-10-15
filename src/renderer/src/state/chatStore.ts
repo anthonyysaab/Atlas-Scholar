@@ -48,6 +48,8 @@ interface ChatState {
   handleError: (event: { streamId: string; error: string }) => void;
   /** Add one [[concept]] from a message to the graph (a ghost chip was clicked); returns its id. */
   commitConcept: (threadId: string, messageId: string, docPath: string, name: string) => Promise<string | null>;
+  /** The tab's document moved: its threads (and a running stream) now belong to `docPath`. */
+  repointDoc: (docId: string, docPath: string) => void;
 }
 
 function newId(): string {
@@ -110,6 +112,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return { noticeByDoc };
     });
   },
+
+  repointDoc: (docId, docPath) =>
+    set((state) => {
+      const ids = new Set(state.threadIdsByDoc[docId] ?? []);
+      const threads = Object.fromEntries(
+        Object.entries(state.threads).map(([id, thread]) => [id, ids.has(id) ? { ...thread, docPath } : thread])
+      );
+      const streams = Object.fromEntries(
+        Object.entries(state.streams).map(([id, meta]) => [id, meta.docId === docId ? { ...meta, docPath } : meta])
+      );
+      return { threads, streams };
+    }),
 
   hydrate: (docId, docPath) => {
     const inFlight = hydrating.get(docId);

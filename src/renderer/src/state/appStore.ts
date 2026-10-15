@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { FileRef, LinkSource, OpenDoc, PassageDraft, SelectionQuote } from "@shared/types";
+import { samePath } from "@shared/docLabel";
 import { viewerKindFor } from "@shared/mime";
 
 export interface FileEvent {
@@ -22,6 +23,13 @@ export interface GraphFocus {
 
 export type CenterView = "doc" | "graph";
 
+/** A saved web excerpt shown from the library (D21). */
+export interface WebExcerptView {
+  url: string;
+  title?: string;
+  text: string;
+}
+
 interface AppState {
   docs: OpenDoc[];
   activeDocId: string | null;
@@ -35,7 +43,12 @@ interface AppState {
   centerView: CenterView;
   graphTabOpen: boolean;
   graphFocus: GraphFocus | null;
+  webExcerpt: WebExcerptView | null;
+  showWebExcerpt: (excerpt: WebExcerptView) => void;
+  closeWebExcerpt: () => void;
   openFile: (ref: FileRef) => void;
+  /** Point an open tab at the document's new location (moved, renamed or imported); keeps the tab. */
+  replaceDoc: (oldPath: string, ref: FileRef) => string | null;
   closeDoc: (id: string) => void;
   setActiveDoc: (id: string) => void;
   setDocDirty: (id: string, dirty: boolean) => void;
@@ -64,10 +77,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   centerView: "doc",
   graphTabOpen: false,
   graphFocus: null,
+  webExcerpt: null,
+
+  showWebExcerpt: (excerpt) => set({ webExcerpt: excerpt }),
+
+  closeWebExcerpt: () => set({ webExcerpt: null }),
 
   openFile: (ref) =>
     set((state) => {
-      const existing = state.docs.find((doc) => doc.ref.path === ref.path);
+      const existing = state.docs.find((doc) => samePath(doc.ref.path, ref.path));
       if (existing) return { activeDocId: existing.id, centerView: "doc" };
       const doc: OpenDoc = {
         id: crypto.randomUUID(),
@@ -77,6 +95,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       return { docs: [...state.docs, doc], activeDocId: doc.id, centerView: "doc" };
     }),
+
+  replaceDoc: (oldPath, ref) => {
+    const target = get().docs.find((doc) => samePath(doc.ref.path, oldPath));
+    if (!target) return null;
+    const duplicate = get().docs.find((doc) => doc.id !== target.id && samePath(doc.ref.path, ref.path));
+    set((state) => {
+      const docs = state.docs
+        .filter((doc) => doc.id !== duplicate?.id)
+        .map((doc) => (doc.id === target.id ? { ...doc, ref, kind: viewerKindFor(ref.ext, ref.mime) } : doc));
+      const activeDocId = state.activeDocId === duplicate?.id ? target.id : state.activeDocId;
+      return { docs, activeDocId };
+    });
+    return target.id;
+  },
 
   closeDoc: (id) => {
     const doc = get().docs.find((candidate) => candidate.id === id);

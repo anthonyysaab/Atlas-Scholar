@@ -1,7 +1,9 @@
-import { BrowserWindow, WebContentsView, session, type WebContents } from "electron";
+import { BrowserWindow, Menu, WebContentsView, session, type WebContents } from "electron";
 import { IPC } from "@shared/channels";
-import type { BrowserBounds, BrowserState } from "@shared/types";
+import type { BrowserBounds, BrowserState, WebSelection } from "@shared/types";
+import { canonicalPageUrl, isWebUrl } from "@shared/webPassage";
 import { emitToRenderer } from "@main/events";
+import { SELECTION_MARKDOWN_SCRIPT } from "./selectionMarkdown";
 
 // A dedicated session so the app's strict CSP header (injected on defaultSession in index.ts)
 // never applies to arbitrary web pages, and web permissions stay denied.
@@ -9,6 +11,9 @@ const PARTITION = "persist:rabrowser";
 const HOME_URL = "https://duckduckgo.com";
 
 const EMPTY_BOUNDS: BrowserBounds = { x: 0, y: 0, width: 0, height: 0 };
+// Matches the links store's excerpt limit: the saved text is what the user reads offline.
+const MAX_SELECTION_CHARS = 20000;
+const NO_SELECTION: WebSelection = { url: "", title: "", text: "" };
 
 let hostWindow: BrowserWindow | null = null;
 let view: WebContentsView | null = null;
@@ -74,6 +79,25 @@ function ensureView(): WebContentsView | null {
   contents.on("did-stop-loading", emit);
   contents.on("did-fail-load", emit);
   contents.on("page-title-updated", emit);
+
+  // A native menu: the page cannot see or alter it, and it only reads what Chromium reports.
+  contents.on("context-menu", (_event, params) => {
+    if (!hostWindow || hostWindow.isDestroyed() || !isWebUrl(params.pageURL)) return;
+    const text = params.selectionText.trim().slice(0, MAX_SELECTION_CHARS);
+    const request: WebSelection = { url: canonicalPageUrl(params.pageURL), title: contents.getTitle(), text };
+    const menu = Menu.buildFromTemplate([
+      {
+        label: text ? "Save selection to graph" : "Save this page to graph",
+        // The selection is still there when the item is clicked; read it again as Markdown.
+        click: () =>
+          void browserSelection().then((current) =>
+            emitToRenderer(IPC.browser.saveRequest, current.text ? current : request)
+          )
+      },
+      ...(text ? [{ role: "copy" as const }] : [])
+    ]);
+    menu.popup({ window: hostWindow });
+  });
 
   void contents.loadURL(HOME_URL).catch(() => undefined);
   return created;
@@ -152,6 +176,32 @@ export function browserSetBounds(next: BrowserBounds): void {
 export function browserSetVisible(next: boolean): void {
   visible = next;
   if (view && !view.webContents.isDestroyed()) view.setVisible(next);
+}
+
+async function readSelection(contents: WebContents, script: string): Promise<string> {
+  try {
+    const raw: unknown = await contents.executeJavaScript(script, false);
+    return typeof raw === "string" ? raw.trim().slice(0, MAX_SELECTION_CHARS) : "";
+  } catch {
+    // A page that blocks script (or is mid-navigation) simply has no selection to save.
+    return "";
+  }
+}
+
+/**
+ * The current page and its selection as Markdown with LaTeX math (plain text when the page's
+ * markup cannot be converted). Runs in the isolated browser session and only reads; the URL and
+ * title come from Chromium, not from page script.
+ */
+export async function browserSelection(): Promise<WebSelection> {
+  if (!view || view.webContents.isDestroyed()) return NO_SELECTION;
+  const contents = view.webContents;
+  const url = contents.getURL();
+  if (!isWebUrl(url)) return NO_SELECTION;
+  const text =
+    (await readSelection(contents, SELECTION_MARKDOWN_SCRIPT)) ||
+    (await readSelection(contents, "String(window.getSelection() ?? '')"));
+  return { url: canonicalPageUrl(url), title: contents.getTitle(), text };
 }
 
 export function browserCurrent(): BrowserState {

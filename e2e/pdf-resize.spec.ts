@@ -53,7 +53,7 @@ test("resizing a panel keeps the PDF reading position", async () => {
   const app = await electron.launch({
     args: ["."],
     cwd: process.cwd(),
-    env: { ...process.env, RA_USER_DATA_DIR: join(dir, "profile") }
+    env: { ...process.env, RA_USER_DATA_DIR: join(dir, "profile"), RA_LIBRARY_DIR: join(dir, "library") }
   });
 
   try {

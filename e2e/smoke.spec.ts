@@ -5,7 +5,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 
 // Boots the real production bundle (built into `out/`) under a throwaway profile. This is the
 // guardrail for the production Content-Security-Policy: if `script-src 'self'` or `worker-src`
-// blocked the bundle, React would never mount and the onboarding dialog would not appear.
+// blocked the bundle, React would never mount and the library gate (first run) would not appear.
 test("production build boots and renders under the production CSP", async () => {
   const userData = await mkdtemp(join(tmpdir(), "ra-e2e-"));
   const app = await electron.launch({
@@ -24,7 +24,7 @@ test("production build boots and renders under the production CSP", async () => 
   try {
     await page.reload();
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByText("Welcome to Reading Assistant")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "Choose a library" })).toBeVisible({ timeout: 20_000 });
 
     const violations = errors.filter((text) =>
       /content security policy|refused to|violates the following/i.test(text)
