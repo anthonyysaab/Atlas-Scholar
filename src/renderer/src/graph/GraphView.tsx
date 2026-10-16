@@ -5,6 +5,7 @@ import { isWebUrl } from "@shared/webPassage";
 import { Icon } from "@renderer/components/Icon";
 import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { ConceptDetail } from "@renderer/links/ConceptDetail";
+import { LinkChatBar } from "@renderer/links/LinkChatBar";
 import { conceptsOfPassage, indexGraph } from "@renderer/links/graphIndex";
 import { openPassage } from "@renderer/lib/openPassage";
 import { useAppStore } from "@renderer/state/appStore";
@@ -12,6 +13,8 @@ import { ensureLinksSubscription, useLinksStore } from "@renderer/state/linksSto
 import { GraphCanvas } from "./GraphCanvas";
 import { buildGraphData, docColor } from "./model";
 import type { SimNode } from "./simulation";
+
+const LIBRARY_SCOPE = { kind: "library" } as const;
 
 // Past this many nodes the passage-level view is a hairball; start with concepts only.
 const LARGE_GRAPH_NODES = 1500;
@@ -165,7 +168,10 @@ export function GraphView() {
             </ul>
           ) : null}
         </div>
-        <div className="absolute bottom-3 left-3 flex max-w-[70%] flex-wrap items-center gap-1 rounded border border-border bg-panel/95 px-2 py-1 text-[11px] shadow">
+        <div className="absolute bottom-3 right-3 z-10 w-[360px] max-w-[45%] overflow-hidden rounded border border-border shadow-lg">
+          <LinkChatBar scope={LIBRARY_SCOPE} className="border-t-0" />
+        </div>
+        <div className="absolute bottom-3 left-3 flex max-w-[50%] flex-wrap items-center gap-1 rounded border border-border bg-panel/95 px-2 py-1 text-[11px] shadow">
           {data.docs.map((doc) => {
             const hidden = [...hiddenDocs].some((entry) => samePath(entry, doc.docPath));
             return (

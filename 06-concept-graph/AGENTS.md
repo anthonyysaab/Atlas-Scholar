@@ -117,3 +117,16 @@ All checklist items ticked, the commands above green, and the manual flow works 
   new §4.1 links file, §5 (`messages[].related`, `WorkspaceSession.graphOpen/graphActive`).
 - Environment notes: new dependency `d3-force@^3` (+ `@types/d3-force`); graph code is lazy-loaded
   (`GraphView`, `GraphCanvas` chunks).
+- Note (links chat, D22): `LinkChatBar` at the bottom of the Links tab (document scope) and floating
+  in the graph view (library scope). `src/main/links/assist.ts` builds the handle snapshot, parses
+  `{reply, ops}`, keeps plans in main; `applyPlan` runs chosen ops in order. Renderer state:
+  `src/renderer/src/state/linkChatStore.ts`. Slash commands `/apply`, `/discard`, `/clear`, `/think`.
+- Note (extraction quality): language-neutral prompt, aliases verified against the chunk, plural-
+  folded matching (`conceptStemKey`), `similarProposalId` for overlapping names, candidates up to 3×
+  the cap then a ranking pass (`src/main/links/rank.ts`) that keeps the central ones and hides the
+  rest restorably (`LinksFile.pruned`, `proposals.restorePruned`). With `graph.mapBeforeExtract` the
+  argument map (`src/main/rag/docMap.ts`, Context tab "Document map → Argument") is built first and
+  quoted in each prompt. `EXTRACT_PROMPT_VERSION` 2.
+- Note (thinking): `ThinkingLevel` auto/off/low/medium/high mapped per provider in
+  `src/main/providers/thinking.ts`; streamed reasoning fields are wrapped in `<think>`. Chat's level is
+  `settings.chat.thinking` (Think chip, `/think`).

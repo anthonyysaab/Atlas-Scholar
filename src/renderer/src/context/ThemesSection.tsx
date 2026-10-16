@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DocThemes, IndexStatus } from "@shared/types";
+import { samePath } from "@shared/docLabel";
 import { openPassage } from "@renderer/lib/openPassage";
 import { toast } from "@renderer/state/toastStore";
 
@@ -31,6 +32,16 @@ export function ThemesSection({ docPath, status }: ThemesSectionProps) {
       active = false;
     };
   }, [docPath, ready, status?.embedModel, status?.chunks]);
+
+  // Building the argument map builds the themes too; show them once it finishes.
+  useEffect(
+    () =>
+      window.api.events.onMapProgress((event) => {
+        if (event.state !== "done" || !samePath(event.docPath, docPath)) return;
+        void window.api.rag.themes(docPath).then(setThemes).catch(() => undefined);
+      }),
+    [docPath]
+  );
 
   const build = async (): Promise<void> => {
     setBuilding(true);

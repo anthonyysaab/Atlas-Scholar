@@ -14,11 +14,25 @@ export const IPC = {
   doc: {
     extract: "doc:extract"
   },
+  notes: {
+    list: "notes:list",
+    get: "notes:get",
+    create: "notes:create",
+    update: "notes:update",
+    remove: "notes:remove"
+  },
   annotations: {
     list: "annotations:list",
     add: "annotations:add",
     update: "annotations:update",
-    remove: "annotations:remove"
+    remove: "annotations:remove",
+    groupsList: "annotations:groups:list",
+    groupsCreate: "annotations:groups:create",
+    groupsUpdate: "annotations:groups:update",
+    groupsRemove: "annotations:groups:remove",
+    groupsAddComment: "annotations:groups:addComment",
+    groupsUpdateComment: "annotations:groups:updateComment",
+    groupsRemoveComment: "annotations:groups:removeComment"
   },
   rag: {
     index: "rag:index",
@@ -28,12 +42,17 @@ export const IPC = {
     search: "rag:search",
     themes: "rag:themes",
     buildThemes: "rag:buildThemes",
+    map: "rag:map",
+    buildMap: "rag:buildMap",
+    cancelMap: "rag:cancelMap",
+    mapProgress: "rag:mapProgress",
     progress: "rag:progress"
   },
   llm: {
     chatStream: "llm:chatStream",
     abort: "llm:abort",
     models: "llm:models",
+    thinkingSupport: "llm:thinkingSupport",
     token: "llm:token",
     done: "llm:done",
     error: "llm:error"
@@ -111,6 +130,10 @@ export const IPC = {
     proposalsAccept: "links:proposals:accept",
     proposalsReject: "links:proposals:reject",
     proposalsMerge: "links:proposals:merge",
+    proposalsRestorePruned: "links:proposals:restorePruned",
+    assist: "links:assist",
+    assistCancel: "links:assist:cancel",
+    applyPlan: "links:applyPlan",
     extract: "links:extract",
     extractCancel: "links:extract:cancel",
     extractStatus: "links:extract:status",

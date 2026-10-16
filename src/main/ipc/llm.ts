@@ -1,7 +1,8 @@
 import type { ChatMessage, ChatRequest } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { onLibrarySwitch } from "@main/library/context";
-import { abortChat, cancelAllChats, chatStream, modelsFor } from "@main/llm/service";
+import { abortChat, cancelAllChats, chatStream, modelsFor, thinkingSupportFor } from "@main/llm/service";
+import { isThinkingLevel } from "@main/providers/thinking";
 import { handle } from "./registry";
 
 function asChatMessages(value: unknown): ChatMessage[] {
@@ -19,7 +20,7 @@ function asChatMessages(value: unknown): ChatMessage[] {
   });
 }
 
-function asChatRequest(value: unknown): ChatRequest {
+export function asChatRequest(value: unknown): ChatRequest {
   if (value === null || typeof value !== "object") throw new Error("Invalid ChatRequest");
   const request = value as Partial<ChatRequest>;
   if (
@@ -35,7 +36,8 @@ function asChatRequest(value: unknown): ChatRequest {
     streamId: request.streamId,
     messages: asChatMessages(request.messages),
     ...(typeof request.temperature === "number" ? { temperature: request.temperature } : {}),
-    ...(typeof request.maxTokens === "number" ? { maxTokens: request.maxTokens } : {})
+    ...(typeof request.maxTokens === "number" ? { maxTokens: request.maxTokens } : {}),
+    ...(isThinkingLevel(request.thinking) ? { thinking: request.thinking } : {})
   };
 }
 
@@ -43,5 +45,8 @@ export function registerLlmIpc(): void {
   handle(IPC.llm.chatStream, async (req: unknown) => chatStream(asChatRequest(req)));
   handle(IPC.llm.abort, async (streamId: unknown) => abortChat(String(streamId)));
   handle(IPC.llm.models, async (providerId: unknown) => modelsFor(String(providerId)));
+  handle(IPC.llm.thinkingSupport, async (providerId: unknown, model: unknown) =>
+    thinkingSupportFor(String(providerId), String(model))
+  );
   onLibrarySwitch(cancelAllChats);
 }

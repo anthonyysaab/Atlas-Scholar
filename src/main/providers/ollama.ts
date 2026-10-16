@@ -1,7 +1,7 @@
 import type { ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, readBodyLines, requireBody } from "./http";
 import { asArray, asNumber, asRecord, asString, parseJson } from "./json";
-import { withThinkingOff } from "./thinking";
+import { ThinkStream, thinkingFields, withQwenSwitch } from "./thinking";
 import type { ProviderModule } from "./types";
 
 function optionsFrom(temperature?: number, maxTokens?: number): Record<string, unknown> {
@@ -23,22 +23,29 @@ export const ollama: ProviderModule = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        messages: thinking === false ? withThinkingOff(model, messages) : messages,
+        messages: withQwenSwitch(model, messages, thinking ?? "auto"),
         stream: true,
-        options: optionsFrom(temperature, maxTokens)
+        options: optionsFrom(temperature, maxTokens),
+        ...thinkingFields("ollama", baseUrl, model, thinking ?? "auto", maxTokens)
       }),
       signal
     });
     await ensureOk(response);
 
+    const think = new ThinkStream();
     for await (const line of readBodyLines(requireBody(response), signal)) {
       if (line.length === 0) continue;
       const chunk = asRecord(parseJson(line));
       if (!chunk) continue;
-      const content = asString(asRecord(chunk["message"])?.["content"]);
-      if (content !== undefined && content.length > 0) yield { delta: content };
-      if (chunk["done"] === true) return;
+      const message = asRecord(chunk["message"]);
+      const reasoning = think.reasoning(asString(message?.["thinking"]) ?? "");
+      if (reasoning) yield { delta: reasoning };
+      const content = think.answer(asString(message?.["content"]) ?? "");
+      if (content) yield { delta: content };
+      if (chunk["done"] === true) break;
     }
+    const tail = think.end();
+    if (tail) yield { delta: tail };
   },
 
   async embed({ baseUrl, model, input, signal }) {

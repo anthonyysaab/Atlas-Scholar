@@ -1,9 +1,18 @@
 import { app } from "electron";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  DEFAULT_HIGHLIGHT_INTENSITY,
+  DEFAULT_HIGHLIGHT_PALETTE,
+  isHexColor,
+  normalizeIntensity,
+  normalizePalette
+} from "@shared/highlights";
 import { isThemePref } from "@shared/themes";
 import type { ChatScope, GraphSettings, Settings, StoredProvider } from "@shared/types";
 import { writeJsonAtomic } from "@main/library/atomic";
+import { isThinkingLevel } from "@main/providers/thinking";
 import { listConfiguredSecrets } from "./keyVault";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -12,10 +21,11 @@ export const DEFAULT_SETTINGS: Settings = {
   activeEmbeddingProviderId: "ollama",
   activeEmbeddingModel: "nomic-embed-text",
   rag: { topK: 6, chunkTokens: 700, chunkOverlap: 120, mmrLambda: 0.7 },
-  chat: { scope: "document" },
+  chat: { scope: "document", thinking: "auto" },
   graph: {
     extractOnIndex: false,
     extractThinking: false,
+    mapBeforeExtract: true,
     maxConceptsPerDoc: 40,
     relatedSuggestions: true,
     relatedMinScore: 0.6,
@@ -28,7 +38,10 @@ export const DEFAULT_SETTINGS: Settings = {
     panelOpen: true,
     panelTab: "chat",
     sidebarSize: 20,
-    panelSize: 30
+    panelSize: 30,
+    highlightPalette: [...DEFAULT_HIGHLIGHT_PALETTE],
+    highlightColor: DEFAULT_HIGHLIGHT_COLOR,
+    highlightIntensity: DEFAULT_HIGHLIGHT_INTENSITY
   },
   keysConfigured: {},
   recentFiles: [],
@@ -92,6 +105,7 @@ function normalizeGraph(value: unknown): GraphSettings {
     ...(typeof raw.extractProviderId === "string" && raw.extractProviderId ? { extractProviderId: raw.extractProviderId } : {}),
     ...(typeof raw.extractModel === "string" && raw.extractModel ? { extractModel: raw.extractModel } : {}),
     extractThinking: bool(raw.extractThinking, base.extractThinking),
+    mapBeforeExtract: bool(raw.mapBeforeExtract, base.mapBeforeExtract),
     maxConceptsPerDoc: Math.round(num(raw.maxConceptsPerDoc, base.maxConceptsPerDoc, 1, 500)),
     relatedSuggestions: bool(raw.relatedSuggestions, base.relatedSuggestions),
     relatedMinScore: num(raw.relatedMinScore, base.relatedMinScore, 0, 1),
@@ -122,11 +136,17 @@ export function normalizeSettings(raw: Partial<Settings> | null): Settings {
   if (!raw) return base;
   const ui = { ...base.ui, ...(raw.ui ?? {}) };
   if (!isThemePref(ui.theme)) ui.theme = base.ui.theme;
+  ui.highlightPalette = normalizePalette(ui.highlightPalette);
+  ui.highlightColor = isHexColor(ui.highlightColor) ? ui.highlightColor.toLowerCase() : base.ui.highlightColor;
+  ui.highlightIntensity = normalizeIntensity(ui.highlightIntensity);
   return {
     ...base,
     ...raw,
     rag: { ...base.rag, ...(raw.rag ?? {}) },
-    chat: { scope: normalizeScope(raw.chat?.scope) },
+    chat: {
+      scope: normalizeScope(raw.chat?.scope),
+      thinking: isThinkingLevel(raw.chat?.thinking) ? raw.chat.thinking : "auto"
+    },
     graph: normalizeGraph(raw.graph),
     ui,
     keysConfigured: {},

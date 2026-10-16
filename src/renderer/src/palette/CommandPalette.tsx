@@ -16,6 +16,7 @@ import { selectActiveThread, useChatStore } from "@renderer/state/chatStore";
 import { toast } from "@renderer/state/toastStore";
 import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
 import { linkSelection, openConceptGraph, startConceptExtraction } from "@renderer/links/actions";
+import { useNotesStore } from "@renderer/state/notesStore";
 import { useUpdateStore } from "@renderer/state/updateStore";
 import { THEMES } from "@renderer/theme/themes";
 
@@ -40,6 +41,15 @@ export function CommandPalette() {
       { id: "panel", label: "Toggle side panel", run: () => void togglePanel() },
       { id: "chat", label: "Switch to Chat", run: () => void switchPanelTab("chat") },
       { id: "annotations", label: "Switch to Annotations", run: () => void switchPanelTab("annotations") },
+      { id: "notes", label: "Switch to Notes (Ctrl+6)", run: () => void switchPanelTab("notes") },
+      {
+        id: "note:new",
+        label: "New note",
+        run: () => {
+          void useNotesStore.getState().create("");
+          void switchPanelTab("notes");
+        }
+      },
       { id: "flashcards", label: "Switch to Flashcards", run: () => void switchPanelTab("flashcards") },
       { id: "card", label: "Add selection to flashcards (/card)", run: () => addSelectionToFlashcards() },
       { id: "context", label: "Switch to Context", run: () => void switchPanelTab("context") },

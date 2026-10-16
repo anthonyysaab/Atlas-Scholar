@@ -21,4 +21,21 @@ describe("normalizeSettings", () => {
     expect(graph.maxConceptsPerDoc).toBe(1);
     expect(graph.extractModel).toBe("llama3.2:3b");
   });
+
+  it("fills highlight defaults and repairs malformed values", () => {
+    const fresh = normalizeSettings(null).ui;
+    expect(fresh.highlightPalette).toEqual(DEFAULT_SETTINGS.ui.highlightPalette);
+    expect(fresh.highlightColor).toBe("#ffe066");
+    const ui = normalizeSettings({
+      ui: {
+        ...DEFAULT_SETTINGS.ui,
+        highlightPalette: ["#FF0000", "red", "#00ff00"],
+        highlightColor: "nope",
+        highlightIntensity: 4
+      }
+    }).ui;
+    expect(ui.highlightPalette).toEqual(["#ff0000", "#8ce99a", "#00ff00", "#f783ac", "#b197fc"]);
+    expect(ui.highlightColor).toBe("#ffe066");
+    expect(ui.highlightIntensity).toBe(1);
+  });
 });

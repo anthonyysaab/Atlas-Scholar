@@ -143,3 +143,70 @@ describe("SidecarAnnotationStore", () => {
     expect((items[0] as Annotation & FallbackMarker).storageFallback).toBe(true);
   });
 });
+
+describe("annotation groups", () => {
+  async function setup(): Promise<{ store: SidecarAnnotationStore; docPath: string; ids: string[] }> {
+    const dir = await tempDir();
+    const docPath = join(dir, "doc.pdf");
+    await writeFile(docPath, "PDF-BYTES");
+    const store = new SidecarAnnotationStore(join(dir, "fallback"));
+    const ids: string[] = [];
+    for (let index = 0; index < 3; index += 1) ids.push((await store.add(highlightInput(docPath))).id);
+    return { store, docPath, ids };
+  }
+
+  it("round-trips a group with its note and comments through the file", async () => {
+    const { store, docPath, ids } = await setup();
+    const group = await store.createGroup({ docPath, title: "Method", annotationIds: [ids[0] ?? "", ids[2] ?? ""] });
+    await store.updateGroup(group.id, { note: "First paragraph.\n\nSecond paragraph." });
+    await store.addComment(group.id, "check against section 5");
+    const withComment = await store.addComment(group.id, "probes vs interventions");
+    const firstComment = withComment.comments[0];
+    await store.updateComment(group.id, firstComment?.id ?? "", "checked against section 5");
+
+    const fresh = new SidecarAnnotationStore(join(docPath, "..", "fallback"));
+    const [loaded] = await fresh.listGroups(docPath);
+    expect(loaded?.title).toBe("Method");
+    expect(loaded?.note).toBe("First paragraph.\n\nSecond paragraph.");
+    expect(loaded?.annotationIds).toEqual([ids[0], ids[2]]);
+    expect(loaded?.comments.map((comment) => comment.body)).toEqual(["checked against section 5", "probes vs interventions"]);
+
+    const removed = await fresh.removeComment(group.id, firstComment?.id ?? "");
+    expect(removed.comments).toHaveLength(1);
+  });
+
+  it("drops unknown and repeated members", async () => {
+    const { store, docPath, ids } = await setup();
+    const group = await store.createGroup({ docPath, title: "G", annotationIds: [ids[1] ?? "", "nope", ids[1] ?? ""] });
+    expect(group.annotationIds).toEqual([ids[1]]);
+  });
+
+  it("takes a deleted annotation out of its groups but keeps the group", async () => {
+    const { store, docPath, ids } = await setup();
+    const group = await store.createGroup({ docPath, title: "G", annotationIds: [ids[0] ?? ""], note: "keep me" });
+    await store.remove(ids[0] ?? "");
+    const [loaded] = await store.listGroups(docPath);
+    expect(loaded?.id).toBe(group.id);
+    expect(loaded?.annotationIds).toEqual([]);
+    expect(loaded?.note).toBe("keep me");
+    const sidecar = JSON.parse(await readFile(`${docPath}.annotations.json`, "utf8")) as { groups: { annotationIds: string[] }[] };
+    expect(sidecar.groups[0]?.annotationIds).toEqual([]);
+  });
+
+  it("records and forgets the linked concept, and ungrouping keeps the annotations", async () => {
+    const { store, docPath, ids } = await setup();
+    const group = await store.createGroup({ docPath, title: "G", annotationIds: ids });
+    expect((await store.updateGroup(group.id, { conceptId: "c1" })).conceptId).toBe("c1");
+    expect((await store.updateGroup(group.id, { conceptId: null })).conceptId).toBeUndefined();
+    await store.removeGroup(group.id);
+    expect(await store.listGroups(docPath)).toEqual([]);
+    expect(await store.list(docPath)).toHaveLength(3);
+  });
+
+  it("still reads files written before groups existed", async () => {
+    const { store, docPath } = await setup();
+    const sidecar = await readSidecar(docPath);
+    expect("groups" in sidecar).toBe(false);
+    expect(await store.listGroups(docPath)).toEqual([]);
+  });
+});

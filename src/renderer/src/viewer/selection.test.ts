@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClientRects, rectFromDisplay, rectToDisplay, type NormalizedRect } from "./selection";
+import { mergeLineRects, normalizeClientRects, rectFromDisplay, rectToDisplay, type NormalizedRect } from "./selection";
 
 describe("normalizeClientRects", () => {
   const page = { left: 100, top: 50, right: 300, bottom: 450 };
@@ -50,5 +50,65 @@ describe("rect rotation transforms", () => {
       expect(back.w).toBeCloseTo(rect.w, 10);
       expect(back.h).toBeCloseTo(rect.h, 10);
     }
+  });
+});
+
+describe("mergeLineRects", () => {
+  const rect = (x: number, y: number, w: number, h: number): NormalizedRect => ({ x, y, w, h });
+  const bottom = (r: NormalizedRect): number => r.y + r.h;
+
+  it("collapses a span's border box and its text node box into one", () => {
+    const merged = mergeLineRects([rect(0.1, 0.2, 0.3, 0.012), rect(0.1005, 0.2003, 0.2995, 0.0115)]);
+    expect(merged).toHaveLength(1);
+  });
+
+  it("joins the spans of one line into a single band of one height", () => {
+    const merged = mergeLineRects([rect(0.1, 0.2, 0.2, 0.012), rect(0.305, 0.201, 0.1, 0.01), rect(0.41, 0.2, 0.2, 0.012)]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.x).toBeCloseTo(0.1);
+    expect((merged[0]?.x ?? 0) + (merged[0]?.w ?? 0)).toBeCloseTo(0.61);
+  });
+
+  it("keeps a superscript on its line without stretching the band", () => {
+    const plain = mergeLineRects([rect(0.1, 0.2, 0.3, 0.012)]);
+    const withMark = mergeLineRects([rect(0.1, 0.2, 0.3, 0.012), rect(0.401, 0.197, 0.01, 0.007)]);
+    expect(withMark).toHaveLength(1);
+    expect(withMark[0]?.y).toBeCloseTo(plain[0]?.y ?? 0);
+    expect(withMark[0]?.h).toBeCloseTo(plain[0]?.h ?? 0);
+  });
+
+  it("keeps two columns apart", () => {
+    const merged = mergeLineRects([rect(0.08, 0.2, 0.38, 0.012), rect(0.54, 0.2, 0.38, 0.012)]);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("closes the leading between consecutive lines without overlapping them", () => {
+    const merged = mergeLineRects([rect(0.1, 0.2, 0.5, 0.012), rect(0.1, 0.216, 0.5, 0.012), rect(0.1, 0.232, 0.3, 0.012)]);
+    expect(merged).toHaveLength(3);
+    const [first, second, third] = merged;
+    expect(bottom(first as NormalizedRect)).toBeCloseTo(second?.y ?? 0);
+    expect(bottom(second as NormalizedRect)).toBeCloseTo(third?.y ?? 0);
+  });
+
+  it("gives every line of a paragraph the same band height", () => {
+    const merged = mergeLineRects([
+      rect(0.1, 0.2, 0.5, 0.0135),
+      rect(0.1, 0.2165, 0.5, 0.0118),
+      rect(0.1, 0.2325, 0.3, 0.013)
+    ]);
+    const heights = merged.map((entry) => entry.h);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(0.0006);
+  });
+
+  it("pads a single rect a little and otherwise leaves it alone", () => {
+    const [only] = mergeLineRects([rect(0.1, 0.2, 0.3, 0.01)]);
+    expect(only?.x).toBeCloseTo(0.1);
+    expect(only?.w).toBeCloseTo(0.3);
+    expect(only?.y).toBeCloseTo(0.199);
+    expect(only?.h).toBeCloseTo(0.012);
+  });
+
+  it("drops empty rects", () => {
+    expect(mergeLineRects([rect(0.1, 0.2, 0, 0.01)])).toEqual([]);
   });
 });

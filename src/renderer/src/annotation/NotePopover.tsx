@@ -5,6 +5,7 @@ import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { revealSelection } from "@renderer/viewer/selection";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLOR } from "./colors";
+import { copyAnnotationsToNotes } from "@renderer/notes/copyToNotes";
 import { useAnnotationStore } from "./store";
 
 interface NotePopoverProps {
@@ -125,6 +126,17 @@ export function NotePopover({ annotation, position, onClose }: NotePopoverProps)
               Jump
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              commitNote();
+              void copyAnnotationsToNotes([{ ...annotation, note }]);
+            }}
+            title="Append this highlight to the open note, with a link back to it"
+            className="rounded border border-border px-2 py-0.5 hover:bg-bg-subtle"
+          >
+            To notes
+          </button>
           <button
             type="button"
             onClick={removeAnnotation}

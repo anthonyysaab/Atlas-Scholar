@@ -4,15 +4,15 @@ import { samePath, shortDocLabel } from "@shared/docLabel";
 import { openPassage } from "@renderer/lib/openPassage";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { useLinksStore } from "@renderer/state/linksStore";
-import { rectToDisplay } from "@renderer/viewer/selection";
+import { mergeLineRects, rectToDisplay, unrotatedAspect } from "@renderer/viewer/selection";
 import { showConceptInLinks } from "./actions";
 import { conceptsOfPassage, indexGraph, relatedOfPassage } from "./graphIndex";
 import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 const LAYER_CLASS = "ra-link-layer";
 
-function buildMarkers(passage: Passage, rotation: number): HTMLElement[] {
-  return (passage.rects ?? []).map((stored) => {
+function buildMarkers(passage: Passage, rotation: number, aspect: number): HTMLElement[] {
+  return mergeLineRects(passage.rects ?? [], aspect).map((stored) => {
     const rect = rectToDisplay(stored, rotation);
     const element = document.createElement("button");
     element.type = "button";
@@ -85,7 +85,8 @@ export function LinkMarkerLayer() {
       const signature = `${rotation}|${mine.map((passage) => `${passage.id}:${passage.stale ? 1 : 0}`).join("|")}`;
       if (layer.dataset.signature === signature) return;
       layer.dataset.signature = signature;
-      layer.replaceChildren(...mine.flatMap((passage) => buildMarkers(passage, rotation)));
+      const aspect = unrotatedAspect(page);
+      layer.replaceChildren(...mine.flatMap((passage) => buildMarkers(passage, rotation, aspect)));
     });
   }, [onClick]);
 

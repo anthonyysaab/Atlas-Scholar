@@ -2,6 +2,7 @@ import type { ChatMessage, ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, requireBody } from "./http";
 import { asArray, asNumber, asRecord, asString, parseJson } from "./json";
 import { parseSse } from "./sse";
+import { ThinkStream, thinkingFields } from "./thinking";
 import type { ProviderModule } from "./types";
 
 const API_VERSION = "2023-06-01";
@@ -47,8 +48,11 @@ export const anthropic: ProviderModule = {
   needsSecret: true,
   defaultBaseUrl: "https://api.anthropic.com",
 
-  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, signal }) {
+  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, thinking, signal }) {
     const split = splitMessages(messages);
+    const fields = thinkingFields("anthropic", baseUrl, model, thinking ?? "auto", maxTokens);
+    // Extended thinking only runs at the default temperature; the API refuses any other value.
+    const thinkingOn = "thinking" in fields;
     const response = await fetch(joinUrl(baseUrl, "/v1/messages"), {
       method: "POST",
       headers: headers(apiKey),
@@ -58,21 +62,28 @@ export const anthropic: ProviderModule = {
         messages: split.messages,
         stream: true,
         ...(split.system !== undefined ? { system: split.system } : {}),
-        ...(temperature !== undefined ? { temperature } : {})
+        ...(temperature !== undefined && !thinkingOn ? { temperature } : {}),
+        ...fields
       }),
       signal
     });
     await ensureOk(response);
 
+    const think = new ThinkStream();
     for await (const event of parseSse(requireBody(response), signal)) {
       const payload = asRecord(parseJson(event.data));
       if (event.event === "content_block_delta") {
-        const text = asString(asRecord(payload?.["delta"])?.["text"]);
-        if (text !== undefined && text.length > 0) yield { delta: text };
+        const delta = asRecord(payload?.["delta"]);
+        const reasoning = think.reasoning(asString(delta?.["thinking"]) ?? "");
+        if (reasoning) yield { delta: reasoning };
+        const text = think.answer(asString(delta?.["text"]) ?? "");
+        if (text) yield { delta: text };
       } else if (event.event === "message_stop") {
-        return;
+        break;
       }
     }
+    const tail = think.end();
+    if (tail) yield { delta: tail };
   },
 
   async embed() {

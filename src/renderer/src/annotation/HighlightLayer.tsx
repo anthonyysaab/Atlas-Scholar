@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Annotation } from "@shared/types";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
+import { useSettingsStore } from "@renderer/state/settingsStore";
+import { toast } from "@renderer/state/toastStore";
+import { pdfCitation } from "@renderer/viewer/copyText";
 import {
   emitSelection,
+  mergeLineRects,
   normalizedRectsToClient,
   onSelection,
   pageElementFor,
   rectToDisplay,
+  unrotatedAspect,
   type DocSelection
 } from "@renderer/viewer/selection";
-import { DEFAULT_COLOR } from "./colors";
+import { currentHighlightColor, DEFAULT_COLOR, rememberHighlightColor, useHighlightIntensity, useHighlightPalette } from "./colors";
+import { combineHighlights, findMergeTarget } from "./mergeRecent";
 import { NotePopover } from "./NotePopover";
 import { EMPTY_ANNOTATIONS, useAnnotationStore } from "./store";
 
@@ -19,29 +25,26 @@ interface Position {
 }
 
 const LAYER_CLASS = "ra-annotation-layer";
+const HIT_CLASS = "ra-annotation-hit";
+// A second highlight made this soon after another, touching it, is a fix-up of the first drag.
+const MERGE_WINDOW_MS = 3000;
 
-function buildHighlights(annotation: Annotation, active: boolean, rotation: number): HTMLElement[] {
+function buildHighlights(annotation: Annotation, active: boolean, rotation: number, aspect: number): HTMLElement[] {
   const color = annotation.color ?? DEFAULT_COLOR;
-  return annotation.anchor.rects.map((stored) => {
+  return mergeLineRects(annotation.anchor.rects, aspect).map((stored) => {
     const rect = rectToDisplay(stored, rotation);
     const element = document.createElement("button");
     element.type = "button";
+    element.className = HIT_CLASS;
     element.dataset.annotationId = annotation.id;
+    if (active) element.dataset.active = "";
+    if (annotation.stale) element.dataset.stale = "";
     element.title = annotation.note || annotation.quotedText || "Highlight";
-    element.style.position = "absolute";
     element.style.left = `${rect.x * 100}%`;
     element.style.top = `${rect.y * 100}%`;
     element.style.width = `${rect.w * 100}%`;
     element.style.height = `${rect.h * 100}%`;
-    element.style.pointerEvents = "auto";
-    element.style.cursor = "pointer";
-    element.style.padding = "0";
-    element.style.margin = "0";
-    element.style.border = "none";
-    element.style.borderRadius = "2px";
-    element.style.outline = active ? "1.5px solid rgb(255 255 255 / 0.9)" : "none";
     element.style.background = color;
-    element.style.opacity = annotation.stale ? "0.22" : active ? "0.5" : "0.35";
     return element;
   });
 }
@@ -58,6 +61,9 @@ export function HighlightLayer() {
   const activeId = useAnnotationStore((state) => state.activeId);
   const popoverId = useAnnotationStore((state) => state.popoverId);
   const load = useAnnotationStore((state) => state.load);
+  const palette = useHighlightPalette();
+  const intensity = useHighlightIntensity();
+  const highlightColor = useSettingsStore((state) => state.settings?.ui.highlightColor ?? DEFAULT_COLOR);
 
   const [popoverPos, setPopoverPos] = useState<Position | null>(null);
   const [toolbarPos, setToolbarPos] = useState<Position | null>(null);
@@ -106,10 +112,6 @@ export function HighlightLayer() {
       if (!layer) {
         layer = document.createElement("div");
         layer.className = LAYER_CLASS;
-        layer.style.position = "absolute";
-        layer.style.inset = "0";
-        layer.style.pointerEvents = "none";
-        layer.style.zIndex = "2";
         layer.addEventListener("click", onHighlightClick);
         page.appendChild(layer);
       }
@@ -123,18 +125,37 @@ export function HighlightLayer() {
         .join("|")}`;
       if (layer.dataset.signature === signature) return;
       layer.dataset.signature = signature;
-      layer.replaceChildren(...mine.flatMap((item) => buildHighlights(item, item.id === active, rotation)));
+      const aspect = unrotatedAspect(page);
+      layer.replaceChildren(...mine.flatMap((item) => buildHighlights(item, item.id === active, rotation, aspect)));
     });
   }, [onHighlightClick]);
 
-  const createHighlight = useCallback(async (selection: DocSelection) => {
-    await useAnnotationStore.getState().add({
-      docPath: selection.docPath,
-      kind: "highlight",
-      anchor: { page: selection.page, rects: selection.rects },
-      quotedText: selection.text,
-      color: DEFAULT_COLOR
-    });
+  const createHighlight = useCallback(async (selection: DocSelection, color: string = currentHighlightColor()) => {
+    const store = useAnnotationStore.getState();
+    const next = { page: selection.page, rects: selection.rects, text: selection.text, color };
+    const target = findMergeTarget(store.itemsByDoc[selection.docPath] ?? [], next, Date.now(), MERGE_WINDOW_MS);
+    if (target) {
+      const combined = combineHighlights(target, next);
+      await store.remove(selection.docPath, target.id);
+      await store.add({
+        docPath: selection.docPath,
+        kind: "highlight",
+        anchor: { page: selection.page, rects: combined.rects },
+        quotedText: combined.text,
+        color,
+        ...(target.note ? { note: target.note } : {})
+      });
+    } else {
+      await store.add({
+        docPath: selection.docPath,
+        kind: "highlight",
+        anchor: { page: selection.page, rects: selection.rects },
+        quotedText: selection.text,
+        color
+      });
+    }
+    rememberHighlightColor(color);
+    window.getSelection()?.removeAllRanges();
     emitSelection(null);
     useAppStore.getState().setSelection(null);
     setPendingSelection(null);
@@ -153,6 +174,17 @@ export function HighlightLayer() {
     emitSelection(null);
     setPendingSelection(null);
     setToolbarPos(null);
+  }, []);
+
+  const copySelection = useCallback(async (selection: DocSelection, cite: boolean) => {
+    const name = useAppStore.getState().docs.find((entry) => entry.ref.path === selection.docPath)?.ref.name ?? "";
+    const text = cite ? pdfCitation(selection.text, name, selection.page) : selection.text;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(cite ? "Quotation copied" : "Copied");
+    } catch {
+      toast.error("Could not copy to the clipboard");
+    }
   }, []);
 
   useEffect(() => {
@@ -186,6 +218,10 @@ export function HighlightLayer() {
   useEffect(() => {
     renderOverlays();
   }, [items, activeId, docPath, renderOverlays]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--ra-highlight-alpha", String(intensity));
+  }, [intensity]);
 
   useEffect(() => {
     let frame = 0;
@@ -273,9 +309,41 @@ export function HighlightLayer() {
           <button
             type="button"
             onClick={() => void createHighlight(pendingSelection)}
-            className="px-2 py-1 hover:bg-bg-subtle"
+            className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-subtle"
           >
+            <span className="h-2.5 w-2.5 rounded-full border border-black/20" style={{ background: highlightColor }} />
             Highlight ⏎H
+          </button>
+          <span className="flex items-center gap-1 border-l border-border px-1.5" role="group" aria-label="Highlight in colour">
+            {palette.map((swatch) => (
+              <button
+                key={swatch.id}
+                type="button"
+                title={`Highlight in ${swatch.label.toLowerCase()}`}
+                aria-label={`Highlight in ${swatch.label.toLowerCase()}`}
+                onClick={() => void createHighlight(pendingSelection, swatch.value)}
+                className={`h-3 w-3 rounded-full border transition-transform hover:scale-125 ${
+                  swatch.value === highlightColor.toLowerCase() ? "border-text" : "border-black/20"
+                }`}
+                style={{ background: swatch.value }}
+              />
+            ))}
+          </span>
+          <button
+            type="button"
+            onClick={() => void copySelection(pendingSelection, false)}
+            title="Copy the selected text (Ctrl+C)"
+            className="border-l border-border px-2 py-1 hover:bg-bg-subtle"
+          >
+            Copy
+          </button>
+          <button
+            type="button"
+            onClick={() => void copySelection(pendingSelection, true)}
+            title="Copy as a quotation with the document name and page"
+            className="border-l border-border px-2 py-1 hover:bg-bg-subtle"
+          >
+            Quote
           </button>
           <button
             type="button"

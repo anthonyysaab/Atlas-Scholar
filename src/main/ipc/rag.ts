@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import type {
+  DocMap,
   DocThemes,
+  MapProgress,
   IndexStatus,
   LibrarySearchInput,
   LibrarySearchResult,
@@ -9,10 +11,13 @@ import type {
 } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { getSettings } from "@main/config/settings";
-import { requireLibrary } from "@main/library/context";
+import { emitToRenderer } from "@main/events";
+import { onLibrarySwitch, requireLibrary } from "@main/library/context";
 import { completeChat } from "@main/llm/service";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 import { getStatus, indexDocument, queryDocument, removeIndex, searchLibraryText } from "@main/rag/index";
+import { DocMapStore } from "@main/rag/docMap";
+import { cancelAllMapBuilds, cancelMapBuild, getDocMap, setMapDeps, startMapBuild } from "@main/rag/docMapRunner";
 import { buildNamingMessages, computeThemes, ThemeStore } from "@main/rag/themes";
 import type { VectorIndex } from "@main/rag/types";
 import { vectorStore } from "@main/rag/vector-store";
@@ -49,7 +54,7 @@ async function buildThemes(docPath: string): Promise<DocThemes> {
                 model,
                 messages: buildNamingMessages(passages),
                 temperature: 0.2,
-                thinking: settings.graph.extractThinking
+                thinking: settings.graph.extractThinking ? "auto" : "off"
               },
               AbortSignal.timeout(NAME_TIMEOUT_MS)
             )
@@ -58,6 +63,20 @@ async function buildThemes(docPath: string): Promise<DocThemes> {
   });
   await themeStore().save(themes);
   return themes;
+}
+
+function startThemes(docPath: string): Promise<DocThemes> {
+  const key = resolve(docPath).toLowerCase();
+  const existing = building.get(key);
+  if (existing) return existing;
+  const run = buildThemes(docPath).finally(() => building.delete(key));
+  building.set(key, run);
+  return run;
+}
+
+/** The map groups passages by theme; themes already built are reused as they are. */
+async function themesFor(index: VectorIndex): Promise<DocThemes> {
+  return (await themeStore().get(index)) ?? startThemes(index.docPath);
 }
 
 function parseIndexOptions(value: unknown): { force?: boolean; extractConcepts?: boolean } {
@@ -117,6 +136,17 @@ function parseQuery(value: unknown): RagQueryInput {
 }
 
 export function registerRagIpc(): void {
+  setMapDeps({
+    settings: getSettings,
+    complete: completeChat,
+    emit: (progress: MapProgress) => emitToRenderer(IPC.rag.mapProgress, progress),
+    findIndex: currentIndex,
+    themes: themesFor,
+    store: () => new DocMapStore(requireLibrary().location("maps")),
+    now: () => new Date()
+  });
+  onLibrarySwitch(cancelAllMapBuilds);
+
   handle(
     IPC.rag.index,
     (docPath: unknown, opts: unknown): Promise<IndexStatus> =>
@@ -140,12 +170,9 @@ export function registerRagIpc(): void {
     return index ? themeStore().get(index) : null;
   });
 
-  handle(IPC.rag.buildThemes, (docPath: unknown): Promise<DocThemes> => {
-    const key = resolve(String(docPath)).toLowerCase();
-    const existing = building.get(key);
-    if (existing) return existing;
-    const run = buildThemes(String(docPath)).finally(() => building.delete(key));
-    building.set(key, run);
-    return run;
-  });
+  handle(IPC.rag.buildThemes, (docPath: unknown): Promise<DocThemes> => startThemes(String(docPath)));
+
+  handle(IPC.rag.map, (docPath: unknown): Promise<DocMap | null> => getDocMap(String(docPath)));
+  handle(IPC.rag.buildMap, (docPath: unknown): Promise<MapProgress> => startMapBuild(String(docPath)));
+  handle(IPC.rag.cancelMap, (docPath: unknown): void => cancelMapBuild(String(docPath)));
 }

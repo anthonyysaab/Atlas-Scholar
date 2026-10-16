@@ -7,6 +7,7 @@ import { registerHealthIpc } from "./health";
 import { registerLibraryIpc, type LibraryIpcDeps } from "./library";
 import { registerLinksIpc } from "./links";
 import { registerLlmIpc } from "./llm";
+import { registerNotesIpc } from "./notes";
 import { registerOnboardingIpc } from "./onboarding";
 import { registerProvidersIpc } from "./providers";
 import { registerRagIpc } from "./rag";
@@ -25,6 +26,7 @@ export function registerIpcHandlers(deps: LibraryIpcDeps): void {
   registerThreadsIpc();
   registerDocIpc();
   registerAnnotationsIpc();
+  registerNotesIpc();
   registerRagIpc();
   registerHealthIpc();
   registerOnboardingIpc();

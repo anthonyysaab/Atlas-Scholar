@@ -7,6 +7,8 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
 import { normalizeMath } from "./normalizeMath";
+import { parseAnnotationHref } from "@shared/notes";
+import { openAnnotationLink } from "@renderer/notes/openAnnotationLink";
 import { conceptFromHref, remarkWikiLinks } from "./remarkWikiLinks";
 
 const REMARK_PLUGINS: PluggableList = [remarkGfm, [remarkMath, { singleDollarTextMath: true }]];
@@ -20,15 +22,19 @@ const REHYPE_PLUGINS: PluggableList = [rehypeKatex, rehypeHighlight];
 
 // The renderer window cannot navigate (`will-navigate` is denied in main), so links are handed to
 // the main process. Only http(s) is forwarded; other schemes are ignored rather than opening a path.
+// Links to annotations (from notes) open the document at the highlight.
 function Link({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   const renderConcept = useContext(ConceptRendererContext);
   const concept = conceptFromHref(href);
+  const annotation = parseAnnotationHref(href);
   const onClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
       // Quotes render inside clickable rows; following a link must not also trigger the row.
       event.stopPropagation();
-      if (href && /^https?:\/\//i.test(href)) void window.api.file.openExternal(href);
+      const target = parseAnnotationHref(href);
+      if (target) void openAnnotationLink(target);
+      else if (href && /^https?:\/\//i.test(href)) void window.api.file.openExternal(href);
     },
     [href]
   );
@@ -36,7 +42,17 @@ function Link({ href, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElemen
     return renderConcept ? <>{renderConcept(concept, children)}</> : <span className="text-accent">{children}</span>;
   }
   return (
-    <a {...rest} href={href} onClick={onClick} title={href} className="text-accent underline underline-offset-2">
+    <a
+      {...rest}
+      href={href}
+      onClick={onClick}
+      title={annotation ? "Open this highlight in its document" : href}
+      className={
+        annotation
+          ? "rounded bg-accent/10 px-1 text-accent no-underline hover:bg-accent/20"
+          : "text-accent underline underline-offset-2"
+      }
+    >
       {children}
     </a>
   );

@@ -1,9 +1,10 @@
-import type { ChatRequest, ModelInfo } from "@shared/types";
+import type { ChatRequest, ModelInfo, ThinkingLevel, ThinkingSupport } from "@shared/types";
 import { IPC } from "@shared/channels";
 import { getSecret } from "@main/config/keyVault";
 import { emitToRenderer } from "@main/events";
 import { modelsForProvider, resolveProviderConfig } from "@main/providers";
 import { getModule, type ProviderConfig } from "@main/providers/registry";
+import { effectiveLevel, thinkingSupport } from "@main/providers/thinking";
 import type { ProviderModule } from "@main/providers/types";
 
 const active = new Map<string, AbortController>();
@@ -27,7 +28,7 @@ async function runChat(
       messages: req.messages,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
-      ...(req.thinking !== undefined ? { thinking: req.thinking } : {}),
+      ...thinkingArg(config, req),
       signal
     })) {
       if (chunk.delta.length === 0) continue;
@@ -41,6 +42,17 @@ async function runChat(
     }
     emitToRenderer(IPC.llm.error, { streamId: req.streamId, error: errorMessage(error) });
   }
+}
+
+/** The requested level narrowed to what this model has; nothing at all when that is "auto". */
+function thinkingArg(config: ProviderConfig, req: Pick<ChatRequest, "model" | "thinking">): { thinking?: ThinkingLevel } {
+  const level = effectiveLevel(thinkingSupport(config.moduleId, config.baseUrl, req.model), req.thinking);
+  return level === "auto" ? {} : { thinking: level };
+}
+
+export async function thinkingSupportFor(providerId: string, model: string): Promise<ThinkingSupport> {
+  const config = await resolveProviderConfig(providerId);
+  return config ? thinkingSupport(config.moduleId, config.baseUrl, model) : { kind: "none", levels: ["auto"] };
 }
 
 interface ResolvedProvider {
@@ -75,7 +87,7 @@ export async function completeChat(req: Omit<ChatRequest, "streamId">, signal: A
     messages: req.messages,
     ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
-    ...(req.thinking !== undefined ? { thinking: req.thinking } : {}),
+    ...thinkingArg(config, req),
     signal
   })) {
     text += chunk.delta;

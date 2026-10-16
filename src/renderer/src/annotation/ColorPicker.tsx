@@ -1,4 +1,4 @@
-import { HIGHLIGHT_COLORS } from "./colors";
+import { useHighlightPalette } from "./colors";
 
 interface ColorPickerProps {
   value: string | undefined;
@@ -7,11 +7,12 @@ interface ColorPickerProps {
 }
 
 export function ColorPicker({ value, onChange, size = "md" }: ColorPickerProps) {
+  const palette = useHighlightPalette();
   const dimension = size === "sm" ? 14 : 18;
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Highlight color">
-      {HIGHLIGHT_COLORS.map((color) => {
-        const selected = value === color.value;
+      {palette.map((color) => {
+        const selected = value?.toLowerCase() === color.value;
         return (
           <button
             key={color.id}

@@ -24,12 +24,15 @@ function ProposalRow({
   proposal,
   checked,
   onCheck,
-  showDoc
+  showDoc,
+  sibling
 }: {
   proposal: ConceptProposal;
   checked: boolean;
   onCheck: (checked: boolean) => void;
   showDoc: boolean;
+  /** The pending proposal this one's name contains or extends. */
+  sibling: ConceptProposal | undefined;
 }) {
   const concepts = useLinksStore((state) => state.graph.concepts);
   const [name, setName] = useState(proposal.name);
@@ -97,6 +100,19 @@ function ProposalRow({
             className="rounded px-1 hover:text-text"
           >
             similar to “{similar.name}” — join it?
+          </button>
+        ) : null}
+        {sibling ? (
+          <button
+            type="button"
+            title={`Merge with the proposal “${sibling.name}” under the shorter name; both passages lists are kept`}
+            onClick={() => {
+              const name = sibling.name.length <= proposal.name.length ? sibling.name : proposal.name;
+              void run(() => window.api.links.proposals.merge([proposal.id, sibling.id], name));
+            }}
+            className="rounded px-1 hover:text-text"
+          >
+            overlaps “{sibling.name}” — merge?
           </button>
         ) : null}
       </div>
@@ -186,8 +202,18 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
             <>
               <div className="flex items-center justify-between">
                 <span>
-                  {running ? "Extracting concepts…" : progress.state === "done" ? "Extraction finished" : progress.state === "error" ? "Extraction stopped" : "Extraction paused"}{" "}
-                  {progress.done}/{progress.total}
+                  {running
+                    ? progress.phase === "mapping"
+                      ? "Mapping the argument first…"
+                      : progress.phase === "ranking"
+                        ? "Keeping the most central concepts…"
+                        : "Extracting concepts…"
+                    : progress.state === "done"
+                      ? "Extraction finished"
+                      : progress.state === "error"
+                        ? "Extraction stopped"
+                        : "Extraction paused"}{" "}
+                  {progress.phase === "mapping" && running ? "" : `${progress.done}/${progress.total}`}
                   {progress.cached ? ` · ${progress.cached} from saved replies` : ""}
                 </span>
                 {running ? (
@@ -208,6 +234,25 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
                 <div className="h-full bg-accent transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
               </div>
               {progress.error ? <span className="text-danger">{progress.error}</span> : null}
+              {!running && (progress.pruned ?? 0) > 0 ? (
+                <span>
+                  {progress.pruned} less central concept{progress.pruned === 1 ? " was" : "s were"} hidden.{" "}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run(async () => {
+                        const restored = await window.api.links.proposals.restorePruned(docPath);
+                        const status = await window.api.links.extractStatus(docPath);
+                        if (status) useLinksStore.getState().setExtraction(status);
+                        toast.info(`${restored} concept${restored === 1 ? "" : "s"} back in the queue`);
+                      })
+                    }
+                    className="text-accent hover:underline"
+                  >
+                    Show them
+                  </button>
+                </span>
+              ) : null}
             </>
           ) : (
             <div className="flex items-center justify-between gap-2">
@@ -292,6 +337,7 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
                 key={proposal.id}
                 proposal={proposal}
                 showDoc={scope === "all"}
+                sibling={proposal.similarProposalId ? proposals.find((entry) => entry.id === proposal.similarProposalId) : undefined}
                 checked={checked.has(proposal.id)}
                 onCheck={(value) =>
                   setChecked((current) => {

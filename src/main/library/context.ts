@@ -18,7 +18,9 @@ export type DataLocation =
   | "manifest"
   | "journal"
   | "presence"
-  | "migration";
+  | "migration"
+  | "notes"
+  | "maps";
 
 const LIBRARY_LAYOUT: Record<DataLocation, string> = {
   links: "links.json",
@@ -31,11 +33,13 @@ const LIBRARY_LAYOUT: Record<DataLocation, string> = {
   extract: "cache/extract",
   concepts: "cache/concepts",
   themes: "cache/themes",
+  maps: "cache/maps",
   catalog: "catalog.json",
   manifest: "library.json",
   journal: "moves.journal.json",
   presence: "presence",
-  migration: "migration.json"
+  migration: "migration.json",
+  notes: "notes"
 };
 
 // Where the same data lived before libraries existed (everything flat in userData).
@@ -47,7 +51,8 @@ const LEGACY_LAYOUT: Partial<Record<DataLocation, string>> = {
   annotations: "annotations",
   externalAnnotations: "annotations",
   index: "index",
-  extract: "extract"
+  extract: "extract",
+  notes: "notes"
 };
 
 export interface LibraryManifest {

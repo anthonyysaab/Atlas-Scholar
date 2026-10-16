@@ -6,13 +6,15 @@ import { asArray, asRecord, asString } from "@main/providers/json";
 import type { ExtractedConcept } from "./extract";
 
 // Bump when the extraction prompt changes, so replies to the old prompt are not reused.
-export const EXTRACT_PROMPT_VERSION = 1;
+export const EXTRACT_PROMPT_VERSION = 2;
 
 /** What a reply depends on besides the passage itself; any change means asking the model again. */
 export interface ExtractVariant {
   providerId: string;
   model: string;
   thinking: boolean;
+  /** The argument map the prompts quoted (its build time); replies made without one or with another differ. */
+  map?: string;
 }
 
 interface CacheFile {
@@ -25,7 +27,8 @@ function hashOf(value: string): string {
 }
 
 function variantKey(variant: ExtractVariant): string {
-  return `${variant.providerId}|${variant.model}|${variant.thinking ? "thinking" : "direct"}|prompt-${EXTRACT_PROMPT_VERSION}`;
+  const map = variant.map ? `|map-${variant.map}` : "";
+  return `${variant.providerId}|${variant.model}|${variant.thinking ? "thinking" : "direct"}|prompt-${EXTRACT_PROMPT_VERSION}${map}`;
 }
 
 // Keyed by passage text rather than chunk ordinal, so re-indexing with the same chunking reuses replies.

@@ -329,7 +329,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     ];
 
     try {
-      await window.api.llm.chatStream({ providerId, model, messages, streamId });
+      const thinking = settings?.chat?.thinking ?? "auto";
+      await window.api.llm.chatStream({ providerId, model, messages, streamId, ...(thinking !== "auto" ? { thinking } : {}) });
     } catch (error) {
       get().handleError({ streamId, error: error instanceof Error ? error.message : String(error) });
     }

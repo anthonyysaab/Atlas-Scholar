@@ -2,7 +2,7 @@ import type { ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, requireBody } from "./http";
 import { asArray, asNumber, asRecord, asString, parseJson } from "./json";
 import { parseSse } from "./sse";
-import { isDeepSeekEndpoint, withThinkingOff } from "./thinking";
+import { ThinkStream, thinkingFields, withQwenSwitch } from "./thinking";
 import type { ProviderModule } from "./types";
 
 function modelsFromPayload(payload: unknown): ModelInfo[] {
@@ -33,7 +33,7 @@ export const openaiCompatible: ProviderModule = {
   defaultBaseUrl: "https://api.openai.com/v1",
 
   async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, thinking, signal }) {
-    const thinkingOff = thinking === false;
+    const level = thinking ?? "auto";
     const response = await fetch(joinUrl(baseUrl, "/chat/completions"), {
       method: "POST",
       headers: {
@@ -42,25 +42,30 @@ export const openaiCompatible: ProviderModule = {
       },
       body: JSON.stringify({
         model,
-        messages: thinkingOff ? withThinkingOff(model, messages) : messages,
+        messages: withQwenSwitch(model, messages, level),
         stream: true,
         ...(temperature !== undefined ? { temperature } : {}),
         ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-        // Only DeepSeek gets the field: OpenAI and others reject unknown request parameters.
-        ...(thinkingOff && isDeepSeekEndpoint(baseUrl) ? { thinking: { type: "disabled" } } : {})
+        ...thinkingFields("openai-compatible", baseUrl, model, level, maxTokens)
       }),
       signal
     });
     await ensureOk(response);
 
+    const think = new ThinkStream();
     for await (const event of parseSse(requireBody(response), signal)) {
-      if (event.data === "[DONE]") return;
+      if (event.data === "[DONE]") break;
       const chunk = asRecord(parseJson(event.data));
       const choice = asRecord(asArray(chunk?.["choices"])[0]);
       const delta = asRecord(choice?.["delta"]);
-      const content = asString(delta?.["content"]);
-      if (content !== undefined && content.length > 0) yield { delta: content };
+      // DeepSeek and LM Studio send `reasoning_content`; OpenRouter sends `reasoning`.
+      const reasoning = think.reasoning(asString(delta?.["reasoning_content"]) ?? asString(delta?.["reasoning"]) ?? "");
+      if (reasoning) yield { delta: reasoning };
+      const content = think.answer(asString(delta?.["content"]) ?? "");
+      if (content) yield { delta: content };
     }
+    const tail = think.end();
+    if (tail) yield { delta: tail };
   },
 
   async embed({ baseUrl, apiKey, model, input, signal }) {

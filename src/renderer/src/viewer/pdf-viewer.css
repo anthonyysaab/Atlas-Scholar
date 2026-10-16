@@ -113,3 +113,37 @@
   outline: 2px solid rgb(230 110 0 / 0.9);
   outline-offset: 1px;
 }
+
+/*
+ * Highlights multiply onto the page (always white), so the colour shows at full strength and the
+ * glyphs underneath stay black. The blend mode sits on the layer because its z-index makes it a
+ * stacking context; on the children it would only blend against the transparent layer.
+ */
+.ra-pdf .ra-annotation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.ra-pdf .ra-annotation-hit {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 1px;
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: var(--ra-highlight-alpha, 0.6);
+}
+
+.ra-pdf .ra-annotation-hit[data-active] {
+  opacity: min(1, calc(var(--ra-highlight-alpha, 0.6) + 0.2));
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.35);
+}
+
+.ra-pdf .ra-annotation-hit[data-stale] {
+  opacity: 0.25;
+  outline: 1px dashed rgb(0 0 0 / 0.4);
+}

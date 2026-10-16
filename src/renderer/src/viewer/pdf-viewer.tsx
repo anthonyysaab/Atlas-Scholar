@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type RefObject } from "react";
 import { samePath } from "@shared/docLabel";
 import { foldQuery } from "@shared/textSearch";
 import { Icon } from "@renderer/components/Icon";
@@ -24,11 +24,15 @@ import "./pdf-viewer.css";
 import type { RendererViewProps } from "./registry";
 import {
   emitSelection,
+  mergeLineRects,
   normalizeClientRects,
   rectFromDisplay,
+  unrotatedAspect,
   rectToDisplay,
   registerSelectionTarget
 } from "./selection";
+import { cleanPdfText } from "./copyText";
+import { snapRangeToWords } from "./wordSnap";
 
 interface Size {
   w: number;
@@ -383,13 +387,12 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
       setSelection(null);
       return;
     }
-    const text = selection.toString();
-    if (!text.trim()) {
+    if (!selection.toString().trim()) {
       emitSelection(null);
       setSelection(null);
       return;
     }
-    const range = selection.getRangeAt(0);
+    let range = selection.getRangeAt(0);
     let pageNumber = 0;
     let pageElement: HTMLDivElement | null = null;
     for (const [number, element] of pagesRef.current) {
@@ -400,10 +403,25 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
       }
     }
     if (!pageElement) return;
+    const textLayer = pageElement.querySelector(".ra-pdf-text");
+    if (textLayer) {
+      const snapped = snapRangeToWords(range, textLayer);
+      if (snapped.compareBoundaryPoints(Range.START_TO_START, range) !== 0 || snapped.compareBoundaryPoints(Range.END_TO_END, range) !== 0) {
+        selection.removeAllRanges();
+        selection.addRange(snapped);
+        range = snapped;
+      }
+    }
+    // Selection.toString() keeps the text layer's line breaks, which cleanPdfText needs to rejoin
+    // hyphenated words; Range.toString() runs the lines together.
+    const text = cleanPdfText(selection.toString());
     const elementRotation = Number(pageElement.dataset.rotation ?? "0") || 0;
     // Store against the unrotated page frame so the highlight stays aligned when rotated later.
-    const rects = normalizeClientRects(pageElement.getBoundingClientRect(), Array.from(range.getClientRects())).map(
-      (rect) => rectFromDisplay(rect, elementRotation)
+    const rects = mergeLineRects(
+      normalizeClientRects(pageElement.getBoundingClientRect(), Array.from(range.getClientRects())).map((rect) =>
+        rectFromDisplay(rect, elementRotation)
+      ),
+      unrotatedAspect(pageElement)
     );
     if (rects.length === 0) {
       emitSelection(null);
@@ -413,6 +431,15 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
     emitSelection({ docId, docPath: ref.path, kind: "pdf", page: pageNumber, rects, text });
     setSelection({ text, page: pageNumber, rects });
   }, [docId, ref.path, setSelection]);
+
+  const onCopy = useCallback((event: ClipboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+    const text = cleanPdfText(selection.toString());
+    if (!text) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", text);
+  }, []);
 
   const zoom = useCallback(
     (factor: number) => {
@@ -564,7 +591,7 @@ export function PdfViewer({ ref, docId }: RendererViewProps) {
             focusSignal={findFocus}
           />
         ) : null}
-        <div ref={rootRef} onMouseUp={onMouseUp} className="relative h-full overflow-auto px-4 py-4">
+        <div ref={rootRef} onMouseUp={onMouseUp} onCopy={onCopy} className="relative h-full overflow-auto px-4 py-4">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <p className="text-sm text-text">Could not open this PDF</p>

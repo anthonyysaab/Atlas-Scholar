@@ -65,11 +65,102 @@ export interface Annotation {
   stale?: boolean;
 }
 
+export interface GroupComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Several annotations of one document gathered under a title, with a long note and a comment thread. */
+export interface AnnotationGroup {
+  id: string;
+  docPath: string;
+  title: string;
+  /** Markdown, any length; the group's write-up. */
+  note: string;
+  /** Short dated remarks, oldest first. */
+  comments: GroupComment[];
+  /** Ordered; an annotation may belong to several groups. */
+  annotationIds: string[];
+  color?: string;
+  /** The concept the group was linked to in the graph. */
+  conceptId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AnnotationGroupInput {
+  docPath: string;
+  title: string;
+  annotationIds: string[];
+  note?: string;
+  color?: string;
+}
+
+export interface AnnotationGroupPatch {
+  title?: string;
+  note?: string;
+  annotationIds?: string[];
+  color?: string;
+  /** `null` forgets the link. */
+  conceptId?: string | null;
+}
+
+export interface AnnotationGroupsApi {
+  list(docPath: string): Promise<AnnotationGroup[]>;
+  create(input: AnnotationGroupInput): Promise<AnnotationGroup>;
+  update(id: string, patch: AnnotationGroupPatch): Promise<AnnotationGroup>;
+  /** Ungroups; the annotations stay. */
+  remove(id: string): Promise<void>;
+  addComment(groupId: string, body: string): Promise<AnnotationGroup>;
+  updateComment(groupId: string, commentId: string, body: string): Promise<AnnotationGroup>;
+  removeComment(groupId: string, commentId: string): Promise<AnnotationGroup>;
+}
+
+/** A free-standing Markdown note of the library (Notes tab). */
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteSummary {
+  id: string;
+  title: string;
+  excerpt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteInput {
+  title?: string;
+  body?: string;
+}
+
+export interface NotePatch {
+  title?: string;
+  body?: string;
+}
+
+export interface NotesApi {
+  /** Most recently edited first. */
+  list(): Promise<NoteSummary[]>;
+  get(id: string): Promise<Note>;
+  create(input: NoteInput): Promise<Note>;
+  update(id: string, patch: NotePatch): Promise<Note>;
+  /** Moves the note to the notes folder's `.trash`. */
+  remove(id: string): Promise<void>;
+}
+
 export interface AnnotationsApi {
   list(docPath: string): Promise<Annotation[]>;
   add(input: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation>;
   update(id: string, patch: Partial<Pick<Annotation, "note" | "color">>): Promise<Annotation>;
   remove(id: string): Promise<void>;
+  groups: AnnotationGroupsApi;
 }
 
 export interface IndexStatus {
@@ -130,6 +221,65 @@ export interface RagApi {
   themes(docPath: string): Promise<DocThemes | null>;
   /** Group the indexed passages by theme (outline sections, else named clusters) and save it. */
   buildThemes(docPath: string): Promise<DocThemes>;
+  /** The saved argument map for the document's current index, or null. */
+  map(docPath: string): Promise<DocMap | null>;
+  /** Start (or join) building the argument map; progress arrives as `events.onMapProgress`. */
+  buildMap(docPath: string): Promise<MapProgress>;
+  cancelMap(docPath: string): Promise<void>;
+}
+
+/** What a part of a document does in its argument. */
+export type ArgRole =
+  | "problem"
+  | "claim"
+  | "background"
+  | "method"
+  | "evidence"
+  | "comparison"
+  | "limitation"
+  | "conclusion"
+  | "supporting";
+
+export interface MapPassage {
+  chunkId: string;
+  page?: number;
+  /** A few words saying what the passage is about. */
+  title: string;
+}
+
+export interface MapNode {
+  id: string;
+  /** What this part argues or does, not its heading. */
+  title: string;
+  role: ArgRole;
+  summary: string;
+  themeIds: string[];
+  passages: MapPassage[];
+  /** A step of the argument made of several sections lists them here. */
+  children: MapNode[];
+}
+
+export interface DocMap {
+  docPath: string;
+  contentHash: string;
+  embedModel: string;
+  /** Empty when the map was built from the outline alone. */
+  model: string;
+  promptVersion: number;
+  createdAt: string;
+  thesis: string;
+  /** The argument's steps, in argument order. */
+  nodes: MapNode[];
+  source: "model" | "outline";
+}
+
+export interface MapProgress {
+  docPath: string;
+  done: number;
+  total: number;
+  state: "running" | "done" | "cancelled" | "error";
+  phase: "sections" | "structure";
+  error?: string;
 }
 
 export interface DocTheme {
@@ -201,15 +351,26 @@ export interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
-  /** `false` asks a reasoning model to answer directly where the provider or model has a switch. */
-  thinking?: boolean;
+  /** How hard a reasoning model may think; absent or "auto" leaves it to the model. */
+  thinking?: ThinkingLevel;
   streamId: string;
+}
+
+/** "auto" sends nothing and lets the model decide; the rest map onto each provider's own switch. */
+export type ThinkingLevel = "auto" | "off" | "low" | "medium" | "high";
+
+export interface ThinkingSupport {
+  /** "toggle": on/off only (the on level is "medium"); "levels": low/medium/high efforts. */
+  kind: "none" | "toggle" | "levels";
+  levels: ThinkingLevel[];
 }
 
 export interface LlmApi {
   chatStream(req: ChatRequest): Promise<void>;
   abort(streamId: string): Promise<void>;
   models(providerId: string): Promise<ModelInfo[]>;
+  /** Which thinking levels the model has; unknown providers report "none". */
+  thinkingSupport(providerId: string, model: string): Promise<ThinkingSupport>;
 }
 
 export interface ModelInfo {
@@ -262,7 +423,7 @@ export interface StoredProvider {
   catalogId?: string;
 }
 
-export type PanelTab = "chat" | "annotations" | "context" | "search" | "bookmarks" | "flashcards" | "links";
+export type PanelTab = "chat" | "annotations" | "notes" | "context" | "search" | "bookmarks" | "flashcards" | "links";
 
 export interface GraphSettings {
   /** Ask the model for key concepts when the user indexes a document; results wait for review. */
@@ -272,6 +433,8 @@ export interface GraphSettings {
   extractModel?: string;
   /** Let a reasoning model think before listing concepts; off is faster and, on DeepSeek, cheaper. */
   extractThinking: boolean;
+  /** Build the argument map before extracting, so each passage is read in its place in the argument. */
+  mapBeforeExtract: boolean;
   maxConceptsPerDoc: number;
   /** Show "Related in your other PDFs" under chat answers. */
   relatedSuggestions: boolean;
@@ -288,7 +451,8 @@ export interface Settings {
   activeEmbeddingProviderId: string;
   activeEmbeddingModel: string;
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number };
-  chat: { scope: ChatScope };
+  /** `thinking` is always filled in by the settings normaliser; optional so partial patches type-check. */
+  chat: { scope: ChatScope; thinking?: ThinkingLevel };
   graph: GraphSettings;
   ui: {
     theme: ThemePref;
@@ -297,6 +461,12 @@ export interface Settings {
     panelTab: PanelTab;
     sidebarSize?: number;
     panelSize?: number;
+    /** The highlight swatches, as `#rrggbb`; annotations store the hex they were made with. */
+    highlightPalette: string[];
+    /** Colour for new highlights; follows the last swatch the user picked. */
+    highlightColor: string;
+    /** Fill strength of highlights (0.3–1); they multiply onto the page, so text stays black. */
+    highlightIntensity: number;
   };
   keysConfigured: Record<string, boolean>;
   /** @deprecated Recent documents live in the library workspace; read only to migrate old data. */
@@ -320,6 +490,7 @@ export interface EventsApi {
   onIndexProgress(cb: (e: { docPath: string; done: number; total: number; phase: string }) => void): () => void;
   onLinksChanged(cb: (e: LinksChangedEvent) => void): () => void;
   onExtractProgress(cb: (e: ExtractProgress) => void): () => void;
+  onMapProgress(cb: (e: MapProgress) => void): () => void;
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void;
 }
 
@@ -718,6 +889,7 @@ export interface Api {
   file: FileApi;
   doc: DocApi;
   annotations: AnnotationsApi;
+  notes: NotesApi;
   rag: RagApi;
   llm: LlmApi;
   providers: ProvidersApi;
@@ -861,8 +1033,46 @@ export interface ConceptProposal {
   matchConceptId?: string;
   /** A similar existing concept the user may want to merge into. */
   suggestedConceptId?: string;
+  /** A pending proposal whose name this one contains or extends; merging them is offered, never automatic. */
+  similarProposalId?: string;
   model: string;
   createdAt: string;
+}
+
+/** What the Links chat bar works on: one document (Links tab) or the whole library (graph view). */
+export type LinkAssistScope = { kind: "document"; docPath: string } | { kind: "library" };
+
+/** Earlier turns, in words only: handles from an earlier snapshot mean nothing in the next one. */
+export interface LinkAssistTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface LinkAssistRequest {
+  requestId: string;
+  scope: LinkAssistScope;
+  message: string;
+  history: LinkAssistTurn[];
+}
+
+/** One proposed change, described for the user; the operation itself stays in the main process. */
+export interface LinkOpPreview {
+  summary: string;
+  /** Merges, deletions, unlinks and rejections: unchecked by default. */
+  destructive: boolean;
+  conceptIds: string[];
+}
+
+export interface LinkAssistPlan {
+  planId: string;
+  reply: string;
+  ops: LinkOpPreview[];
+  /** Operations the model wrote that named unknown objects; dropped. */
+  dropped: number;
+}
+
+export interface LinkApplyResult {
+  results: { index: number; ok: boolean; error?: string }[];
 }
 
 export interface ExtractProgress {
@@ -876,6 +1086,10 @@ export interface ExtractProgress {
   failed?: number;
   /** Passages answered from the saved replies of an earlier run, without calling the model. */
   cached?: number;
+  /** "mapping": building the argument map first; "ranking": keeping the concepts central to the document. */
+  phase?: "mapping" | "extracting" | "ranking";
+  /** Less central proposals hidden by the ranking; `links.proposals.restorePruned` brings them back. */
+  pruned?: number;
   error?: string;
 }
 
@@ -913,8 +1127,15 @@ export interface LinksApi {
     accept(ids: string[]): Promise<LinkResult[]>;
     reject(ids: string[]): Promise<void>;
     merge(ids: string[], name: string): Promise<ConceptProposal>;
+    /** Bring back the proposals the ranking hid for this document; returns how many. */
+    restorePruned(docPath: string): Promise<number>;
   };
   extract(docPath: string): Promise<ExtractProgress>;
   cancelExtract(docPath: string): Promise<void>;
+  /** Ask the model for changes to the links; nothing changes until `applyPlan`. */
+  assist(req: LinkAssistRequest): Promise<LinkAssistPlan>;
+  cancelAssist(requestId: string): Promise<void>;
+  /** Run the chosen operations of a plan, in order; each succeeds or fails on its own. */
+  applyPlan(planId: string, indexes: number[]): Promise<LinkApplyResult>;
   extractStatus(docPath: string): Promise<ExtractProgress | null>;
 }

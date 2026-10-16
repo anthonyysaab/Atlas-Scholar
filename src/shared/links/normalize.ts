@@ -34,8 +34,22 @@ export function passageKey(docPath: string, page: number | undefined, quote: str
   return `${path}#${page ?? 0}#${foldText(quote).slice(0, QUOTE_KEY_CHARS)}`;
 }
 
-function stemToken(token: string): string {
+/** A crude plural fold for English and French: "properties" → "property", "réseaux" → "réseau". */
+export function stemToken(token: string): string {
+  if (token.length > 4 && token.endsWith("ies")) return `${token.slice(0, -3)}y`;
   return token.length > 4 && /[sx]$/.test(token) ? token.slice(0, -1) : token;
+}
+
+/** Like `foldConceptKey`, with plurals folded: "causal explanations" and "causal explanation" match. */
+export function conceptStemKey(name: string): string {
+  return foldConceptKey(name).split(" ").filter(Boolean).map(stemToken).join(" ");
+}
+
+/** True when one name is the other with words added: "causal abstraction" ⊂ "causal abstraction analysis". */
+export function containsConcept(longer: string, shorter: string): boolean {
+  const long = conceptStemKey(longer);
+  const short = conceptStemKey(shorter);
+  return Boolean(short) && long !== short && ` ${long} `.includes(` ${short} `);
 }
 
 function bigrams(value: string): string[] {

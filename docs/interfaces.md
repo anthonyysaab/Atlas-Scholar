@@ -132,17 +132,66 @@ interface AnnotationsApi {
   add(input: Omit<Annotation, "id" | "createdAt" | "updatedAt">): Promise<Annotation>
   update(id: string, patch: Partial<Pick<Annotation, "note" | "color">>): Promise<Annotation>
   remove(id: string): Promise<void>
+  groups: AnnotationGroupsApi
+}
+
+// Several annotations of one document under a title, with a long Markdown note and a comment thread.
+interface GroupComment { id: string; body: string; createdAt: string; updatedAt: string }
+interface AnnotationGroup {
+  id: string; docPath: string
+  title: string
+  note: string                  // Markdown, any length
+  comments: GroupComment[]      // oldest first
+  annotationIds: string[]       // ordered; an annotation may be in several groups
+  color?: string
+  conceptId?: string            // set once the group was linked to the graph
+  createdAt: string; updatedAt: string
+}
+interface AnnotationGroupsApi {
+  list(docPath: string): Promise<AnnotationGroup[]>
+  create(input: { docPath: string; title: string; annotationIds: string[]; note?: string; color?: string }): Promise<AnnotationGroup>
+  update(id: string, patch: { title?: string; note?: string; annotationIds?: string[]; color?: string; conceptId?: string | null }): Promise<AnnotationGroup>
+  remove(id: string): Promise<void>   // ungroups; the annotations stay
+  addComment(groupId: string, body: string): Promise<AnnotationGroup>
+  updateComment(groupId: string, commentId: string, body: string): Promise<AnnotationGroup>
+  removeComment(groupId: string, commentId: string): Promise<AnnotationGroup>
 }
 ```
 
 Sidecar file: `<docPath>.annotations.json`, shape:
 
 ```json
-{ "version": 1, "docPath": "...", "fileHash": "sha256:...", "items": [ /* Annotation[] */ ] }
+{ "version": 1, "docPath": "...", "fileHash": "sha256:...", "items": [ /* Annotation[] */ ],
+  "groups": [ /* AnnotationGroup[], optional */ ] }
 ```
+
+`groups` is optional (files written before groups load unchanged). Deleting an annotation removes
+it from every group; a group whose last member is gone is kept, since its note is the user's writing.
+Limits checked in IPC: title 200 chars, note 50,000, comment 10,000, 500 members.
 
 If the file's `fileHash` no longer matches the current document, keep the items but mark them
 "stale" in the UI (do not auto-delete).
+
+### 1.3b `NotesApi` (Notes tab)
+
+```ts
+interface Note { id: string; title: string; body: string /* Markdown */; createdAt: string; updatedAt: string }
+interface NoteSummary { id: string; title: string; excerpt: string; createdAt: string; updatedAt: string }
+interface NotesApi {
+  list(): Promise<NoteSummary[]>               // most recently edited first
+  get(id: string): Promise<Note>
+  create(input: { title?: string; body?: string }): Promise<Note>
+  update(id: string, patch: { title?: string; body?: string }): Promise<Note>
+  remove(id: string): Promise<void>            // moved to notes/.trash, never erased
+}
+```
+
+One file per note, `<library>/.assistant/notes/<id>.md`: a front matter block (`id`, `title` as a
+JSON string, `created`, `updated`) and the Markdown body, so the folder reads fine in any editor.
+A link to an annotation is a Markdown link whose target is the fragment
+`#annotation:<annotationId>@<encodeURIComponent(docPath)>` (`src/shared/notes.ts`); the document path
+is stored through `PathCodec` and returned as a runtime path. Clicking one opens the document at the
+highlight. Channels: `notes:list|get|create|update|remove`.
 
 ### 1.4 `RagApi`
 
@@ -184,7 +233,28 @@ interface RagApi {
   search(input: LibrarySearchInput): Promise<LibrarySearchResult>   // 06: semantic search across indexed documents
   themes(docPath: string): Promise<DocThemes | null>   // saved theme labels for the current index (rag:themes)
   buildThemes(docPath: string): Promise<DocThemes>     // build and save them (rag:buildThemes)
+  map(docPath: string): Promise<DocMap | null>          // saved argument map for the current index (rag:map)
+  buildMap(docPath: string): Promise<MapProgress>       // start or join a build (rag:buildMap); progress via events
+  cancelMap(docPath: string): Promise<void>             // rag:cancelMap
 }
+
+// Argument map (Context tab "Document map → Argument"), saved per contentHash in
+// .assistant/cache/maps/ with the section replies so far (resumable), valid while embedModel, chunk
+// ids and MAP_PROMPT_VERSION match. Built from the themes in reading order: one call per section (at
+// most 6 passages each; longer sections are split and merged back) returns {title, role, summary,
+// passageTitles}; one more call orders the sections into 3-7 steps with a thesis. Every section
+// lands in exactly one step (unnamed ones in a final "Supporting material" step). A garbled reply
+// falls back to the section heading and each passage's first sentence; without a chat model the
+// map is the sections alone (source "outline"). Uses the extraction provider/model/thinking.
+type ArgRole = "problem" | "claim" | "background" | "method" | "evidence" | "comparison" | "limitation" | "conclusion" | "supporting"
+interface MapPassage { chunkId: string; page?: number; title: string }
+interface MapNode { id: string; title: string; role: ArgRole; summary: string; themeIds: string[];
+  passages: MapPassage[]; children: MapNode[] }       // a step of several sections lists them as children
+interface DocMap { docPath: string; contentHash: string; embedModel: string; model: string; promptVersion: number;
+  createdAt: string; thesis: string; nodes: MapNode[]; source: "model" | "outline" }
+interface MapProgress { docPath: string; done: number; total: number;
+  state: "running" | "done" | "cancelled" | "error"; phase: "sections" | "structure"; error?: string }
+// EventsApi: onMapProgress(cb: (e: MapProgress) => void): () => void   (rag:mapProgress)
 
 // Theme labels, saved per contentHash in .assistant/cache/themes/ and valid while the index's
 // embedModel and chunk ids match. With a usable outline (3–40 section titles with 2+ passages each)
@@ -255,16 +325,34 @@ interface ChatRequest {
   messages: ChatMessage[]
   temperature?: number
   maxTokens?: number
-  thinking?: boolean            // false: ask a reasoning model to answer directly (DeepSeek `thinking`, Qwen3 `/no_think`)
+  thinking?: ThinkingLevel      // absent = "auto"; narrowed in main to what the model has
   streamId: string              // caller-generated; correlates events
+}
+
+type ThinkingLevel = "auto" | "off" | "low" | "medium" | "high"   // "auto" sends nothing
+interface ThinkingSupport {
+  kind: "none" | "toggle" | "levels"   // toggle = on/off only; its "on" is "medium"
+  levels: ThinkingLevel[]              // always includes "auto"
 }
 
 interface LlmApi {
   chatStream(req: ChatRequest): Promise<void>   // tokens arrive via events
   abort(streamId: string): Promise<void>
   models(providerId: string): Promise<ModelInfo[]>
+  thinkingSupport(providerId: string, model: string): Promise<ThinkingSupport>   // llm:thinkingSupport
 }
 ```
+
+Thinking levels map onto each provider's own switch (`src/main/providers/thinking.ts`): Qwen3 hybrid
+models `/no_think` / `/think` on the last user turn (any backend); DeepSeek `thinking: {type}`;
+OpenAI o-series / gpt-5 / gpt-oss `reasoning_effort` (gpt-5 "off" = "minimal"); OpenRouter
+`reasoning: {effort}` or `{enabled: false}`; Ollama `think` (bool, or the level for gpt-oss; only for
+known thinking families, since Ollama rejects it otherwise); Anthropic `thinking: {type: "enabled",
+budget_tokens}` (2k/8k/24k, `max_tokens` raised to fit, temperature dropped); Gemini `thinkingConfig`
+(`thinkingBudget`, or `thinkingLevel` for Gemini 3+). A level the model lacks falls back to the nearest
+one it has. Reasoning a server streams in its own field (`reasoning_content`, `reasoning`, Ollama
+`thinking`, Anthropic thinking blocks, Gemini thought parts) is emitted as a leading
+`<think>…</think>`, which the transcript shows collapsed and structured callers strip.
 
 ### 1.6 `ProvidersApi`
 
@@ -317,7 +405,7 @@ interface Settings {
   activeEmbeddingProviderId: string
   activeEmbeddingModel: string
   rag: { topK: number; chunkTokens: number; chunkOverlap: number; mmrLambda: number }
-  chat: { scope: ChatScope }  // "document": excerpts only; "extended": cited document section, then optional outside knowledge; "library": all indexed documents
+  chat: { scope: ChatScope; thinking?: ThinkingLevel }  // thinking: chat's level (Think chip, /think), default "auto"; "document": excerpts only; "extended": cited document section, then optional outside knowledge; "library": all indexed documents
   graph: GraphSettings        // 06-concept-graph
   ui: {
     theme: ThemePref            // ThemeId ("dark" | "mid-dark" | "mid-light" | "light" | "deep" | "high-contrast" | "sepia") | "system"; see src/shared/themes.ts
@@ -326,6 +414,9 @@ interface Settings {
     panelTab: PanelTab          // active side-panel tab (persisted)
     sidebarSize?: number        // percent, persisted by the layout
     panelSize?: number          // percent, persisted by the layout
+    highlightPalette: string[]  // 5 swatches, #rrggbb; annotations keep the hex they were made with
+    highlightColor: string      // colour for new highlights (last swatch picked)
+    highlightIntensity: number  // 0.3–1; highlights multiply onto the page so text stays black
   }
   keysConfigured: Record<string, boolean>   // NEVER the key values
   recentFiles?: string[]      // absolute paths, most-recent first
@@ -339,7 +430,8 @@ interface GraphSettings {
   extractOnIndex: boolean        // default false; extraction proposals always wait for review
   extractProviderId?: string     // default: activeProviderId
   extractModel?: string          // default: activeChatModel
-  extractThinking: boolean       // default false: extraction requests carry thinking: false
+  extractThinking: boolean       // default false: extraction requests carry thinking: "off"
+  mapBeforeExtract: boolean      // default true: build the argument map first and quote it in each prompt
   maxConceptsPerDoc: number      // default 40
   relatedSuggestions: boolean    // default true: "Related in your other PDFs" under answers
   relatedMinScore: number        // default 0.6 (cosine)
@@ -572,12 +664,16 @@ interface LinkInput { passage?: PassageDraft; concept?: ConceptTarget; relatedPa
 interface LinkResult { concept?: Concept; passages: Passage[]; edges: LinkEdge[] }
 interface ProposalPassage { page?: number; quote: string; chunkId: string }
 interface ConceptProposal { id: string; docPath: string; contentHash: string; name: string; aliases: string[];
-  passages: ProposalPassage[]; matchConceptId?: string; suggestedConceptId?: string; model: string; createdAt: string }
+  passages: ProposalPassage[]; matchConceptId?: string; suggestedConceptId?: string;
+  similarProposalId?: string;   // a pending proposal this name contains or extends; merge is offered, never automatic
+  model: string; createdAt: string }
 interface ProposalPatch { name?: string; aliases?: string[]; passages?: ProposalPassage[]; matchConceptId?: string | null }
 interface ExtractProgress { docPath: string; contentHash: string; done: number; total: number;
   state: "running" | "done" | "cancelled" | "error"; proposals: number;
   failed?: number;   // passages with no usable reply; `done` counts them, the next run retries only them
   cached?: number;   // passages answered from saved replies, without a model call
+  phase?: "mapping" | "extracting" | "ranking"
+  pruned?: number;   // less central proposals the ranking hid (restorePruned brings them back)
   error?: string }
 
 interface LinksApi {
@@ -598,11 +694,28 @@ interface LinksApi {
     accept(ids: string[]): Promise<LinkResult[]>     // the only way extracted concepts reach the graph
     reject(ids: string[]): Promise<void>             // remembers the folded name for that contentHash
     merge(ids: string[], name: string): Promise<ConceptProposal>
+    restorePruned(docPath: string): Promise<number>  // links:proposals:restorePruned
   }
+  assist(req: LinkAssistRequest): Promise<LinkAssistPlan>          // links:assist (D22); changes nothing
+  cancelAssist(requestId: string): Promise<void>                  // links:assist:cancel
+  applyPlan(planId: string, indexes: number[]): Promise<LinkApplyResult>   // links:applyPlan; each op on its own, never twice
   extract(docPath: string): Promise<ExtractProgress> // manual run/resume on an indexed document
   cancelExtract(docPath: string): Promise<void>
   extractStatus(docPath: string): Promise<ExtractProgress | null>
 }
+type LinkAssistScope = { kind: "document"; docPath: string } | { kind: "library" }
+interface LinkAssistRequest { requestId: string; scope: LinkAssistScope; message: string;   // ≤ 4,000 chars
+  history: { role: "user" | "assistant"; content: string }[] }                                // last 6 turns, words only
+interface LinkOpPreview { summary: string; destructive: boolean; conceptIds: string[] }
+interface LinkAssistPlan { planId: string; reply: string; ops: LinkOpPreview[]; dropped: number }
+interface LinkApplyResult { results: { index: number; ok: boolean; error?: string }[] }
+// Snapshot sent to the model (src/main/links/assist.ts): document scope = the argument map's thesis
+// and steps, concepts touching the document (then up to 150 others), its passages with mention links,
+// passage links, proposals, annotation groups, and the top 8 search hits for the message; library
+// scope = up to 400 concepts by size, proposals and library-wide hits. Model ops (handles only):
+// create, rename, aliases, note, merge, delete, unlink, accept, reject, mergeProposals,
+// renameProposal, link, linkPassages, linkGroup; at most 50. Uses the chat provider/model and
+// `settings.chat.thinking`.
 // EventsApi additions:
 //   onLinksChanged(cb: (e: { revision: number; reason: "graph" | "proposals" }) => void): () => void
 //   onExtractProgress(cb: (e: ExtractProgress) => void): () => void
@@ -675,9 +788,19 @@ direction.
 
 Extraction runs only after **user-triggered** indexing (`rag:index`, never the file watcher or a
 model-change rebuild) when `opts.extractConcepts ?? settings.graph.extractOnIndex`. It sends one
-chunk per request, parses tolerant JSON, verifies each quote against the chunk, drops generic
-names and names rejected before, and writes proposals after every chunk. Progress is resumable
-per `contentHash`.
+chunk per request, parses tolerant JSON, verifies each quote against the chunk, keeps only aliases
+the chunk itself contains (no translations), drops generic names and names rejected or hidden
+before, and writes proposals after every chunk. Progress is resumable per `contentHash`.
+
+With `graph.mapBeforeExtract` the argument map is built first (phase "mapping"), and each prompt
+starts with the thesis and the passage's step (title, role, summary). Proposals match pending ones
+and concepts by `conceptStemKey` (plurals folded), so "causal explanations" joins "causal
+explanation"; a name that extends another ("causal abstraction analysis") gets `similarProposalId`.
+While reading, up to 3× `maxConceptsPerDoc` candidates are kept; at the end (phase "ranking") each is
+scored (extracted chunks ×2 + chunks naming it, −1 for a one-off modifier phrase, ×0.8–1.2 by the
+argument role of its passages) and the model picks the central ones from the best 2× cap, in one
+call. A pick smaller than min(5, cap/3) or a failed call falls back to the scores. The rest are moved
+to `pruned` (restorable, and not proposed again).
 
 Every parsed reply is saved as soon as it arrives in `.assistant/cache/concepts/<hash of contentHash>.json`,
 keyed by provider, model, thinking setting and prompt version, then by a hash of the chunk text. A
@@ -708,7 +831,7 @@ export interface ProviderModule {
     messages: ChatMessage[]
     temperature?: number
     maxTokens?: number
-    thinking?: boolean                  // false: answer directly where the provider/model has a switch
+    thinking?: ThinkingLevel            // already narrowed by effectiveLevel(); absent = "auto"
     signal: AbortSignal
   }): AsyncIterable<{ delta: string }>   // streamed text deltas
   embed(args: {
@@ -791,6 +914,7 @@ interface LinksFile {
     state: "running" | "done" | "cancelled" | "error"; error?: string; updatedAt: string
   }>
   rejected: Record<string /* contentHash */, string[] /* folded concept keys */>
+  pruned?: Record<string /* contentHash */, ConceptProposal[]>   // hidden by the ranking, restorable
 }
 ```
 
@@ -859,7 +983,9 @@ ignored.
   workspace.json      { version: 1, bookmarks, session, recent: string[] }
   annotations/<docKey>.json          library documents (same shape as a D8 sidecar)
   annotations/external/<hash>.json   outside documents whose folder is read-only
+  notes/<id>.md                      Notes tab (front matter + Markdown); notes/.trash/ for deleted ones
   cache/extract/<hash>.json          ExtractedDoc cache
+  cache/maps/<hash>.json             argument map + section replies so far (06)
   presence/<machine>.json            { machine, pid, heartbeatAt }, refreshed every minute
   moves.journal.json                 { version: 1, startedAt, moves: [{ from, to }] } (stored form)
   migration.json                     { version: 1, migratedAt, from, copied, totals }

@@ -10,6 +10,7 @@ import { useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
 
 const MAX_CONCEPTS = 8;
+const MAX_LINKS_PER_CALL = 50;
 const SEARCH_DEBOUNCE_MS = 250;
 
 type Option =
@@ -33,6 +34,8 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
   const passage = request.passage;
+  const passages = useMemo(() => [request.passage, ...(request.extraPassages ?? [])], [request]);
+  const many = passages.length > 1;
 
   const conceptOptions = useMemo((): Option[] => {
     const trimmed = query.trim();
@@ -42,15 +45,22 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
       .sort((a, b) => b.score - a.score || a.concept.name.localeCompare(b.concept.name))
       .slice(0, MAX_CONCEPTS)
       .map((entry): Option => ({ kind: "concept", concept: entry.concept }));
-    const key = foldConceptKey(trimmed);
-    const exists = key && concepts.some((concept) => [concept.name, ...concept.aliases].some((name) => foldConceptKey(name) === key));
-    return key && !exists ? [{ kind: "create", name: trimmed }, ...ranked] : ranked;
-  }, [concepts, query]);
+    const wanted = trimmed || request.suggestedName?.trim() || "";
+    const key = foldConceptKey(wanted);
+    const existing = key
+      ? concepts.find((concept) => [concept.name, ...concept.aliases].some((name) => foldConceptKey(name) === key))
+      : undefined;
+    if (!key) return ranked;
+    if (!existing) return [{ kind: "create", name: wanted }, ...ranked];
+    if (trimmed) return ranked;
+    return [{ kind: "concept", concept: existing }, ...ranked.filter((option) => option.kind !== "concept" || option.concept.id !== existing.id)];
+  }, [concepts, query, request.suggestedName]);
 
   useEffect(() => {
     let cancelled = false;
     const text = (query.trim() || passage.quote).slice(0, 1500);
-    if (!text.trim()) return;
+    // Several passages go to one concept; a passage-to-passage link only makes sense for one.
+    if (!text.trim() || many) return;
     setSearching(true);
     const timer = setTimeout(() => {
       window.api.rag
@@ -73,7 +83,7 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, passage.docPath, passage.quote]);
+  }, [query, passage.docPath, passage.quote, many]);
 
   const options = useMemo(
     () => [...conceptOptions, ...hits.map((hit): Option => ({ kind: "passage", hit }))],
@@ -104,12 +114,19 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
       };
       label = `${hit.docName ?? "passage"}${hit.page !== undefined ? ` p.${hit.page}` : ""}`;
     } else {
-      input = {
-        ...base,
-        passage,
-        concept: option.kind === "concept" ? { conceptId: option.concept.id } : { name: option.name }
-      };
+      const concept = option.kind === "concept" ? { conceptId: option.concept.id } : { name: option.name };
       label = option.kind === "concept" ? option.concept.name : option.name;
+      const inputs = passages.map((entry): LinkInput => ({ ...base, passage: entry, concept }));
+      let conceptId: string | undefined;
+      for (let start = 0; start < inputs.length; start += MAX_LINKS_PER_CALL) {
+        const results = await link(inputs.slice(start, start + MAX_LINKS_PER_CALL));
+        if (!results) return;
+        conceptId ??= results.find((result) => result.concept)?.concept?.id;
+      }
+      toast.success(many ? `Linked ${passages.length} passages to ${label}` : `Linked to ${label}`);
+      if (conceptId) request.onLinked?.(conceptId);
+      onDone();
+      return;
     }
     const results = await link([input]);
     if (!results) return;
@@ -123,11 +140,23 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
     <div className="flex flex-col gap-2 p-3">
       <div className="rounded border border-border bg-bg-subtle px-2 py-1.5 text-[12px] text-text-weak">
         <div className="mb-0.5 truncate text-[10px] uppercase tracking-wide" title={passage.docPath}>
+          {many ? `${passages.length} passages · ` : ""}
           {shortDocLabel(passage.docPath)}
-          {passage.page !== undefined ? ` · p.${passage.page}` : ""}
+          {!many && passage.page !== undefined ? ` · p.${passage.page}` : ""}
           {passage.title ? ` · ${passage.title}` : ""}
         </div>
-        <MarkdownPreview content={passage.quote} lines={3} className="text-text" />
+        {many ? (
+          <ul className="max-h-28 space-y-0.5 overflow-y-auto">
+            {passages.map((entry, index) => (
+              <li key={index} className="truncate text-text">
+                {entry.page !== undefined ? <span className="text-text-weak">p.{entry.page} · </span> : null}
+                {entry.quote}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <MarkdownPreview content={passage.quote} lines={3} className="text-text" />
+        )}
       </div>
       <input
         data-autofocus
@@ -146,7 +175,7 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
             if (option) void choose(option);
           }
         }}
-        placeholder="Concept name, or words to find in your other PDFs…"
+        placeholder={many ? "Concept for these passages…" : "Concept name, or words to find in your other PDFs…"}
         className="rounded border border-border bg-bg px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
       />
       <ul ref={listRef} className="flex max-h-[50vh] flex-col overflow-y-auto">
@@ -221,7 +250,12 @@ export function LinkPicker() {
   const request = useAppStore((state) => state.linkPicker);
   const close = useAppStore((state) => state.closeLinkPicker);
   return (
-    <Modal open={request !== null} onClose={close} title="Link passage" width="560px">
+    <Modal
+      open={request !== null}
+      onClose={close}
+      title={request?.extraPassages?.length ? "Link passages to a concept" : "Link passage"}
+      width="560px"
+    >
       {request ? <PickerBody request={request} onDone={close} /> : null}
     </Modal>
   );

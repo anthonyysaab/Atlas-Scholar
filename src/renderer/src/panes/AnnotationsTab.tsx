@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AnnotationList } from "@renderer/annotation/AnnotationList";
-import { DEFAULT_COLOR } from "@renderer/annotation/colors";
+import { currentHighlightColor } from "@renderer/annotation/colors";
 import { useDocSelection } from "@renderer/annotation/selection";
 import { useAnnotationStore } from "@renderer/annotation/store";
 import { EmptyState } from "@renderer/components/EmptyState";
@@ -34,7 +34,7 @@ export function AnnotationsTab() {
             kind: "highlight" as const,
             anchor: { page: selection.page, rects: selection.rects },
             quotedText: selection.text,
-            color: DEFAULT_COLOR
+            color: currentHighlightColor()
           }
         : {
             docPath,

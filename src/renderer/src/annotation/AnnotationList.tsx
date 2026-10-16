@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
-import type { Annotation } from "@shared/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Annotation, AnnotationGroup } from "@shared/types";
 import { Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { revealSelection } from "@renderer/viewer/selection";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLOR } from "./colors";
-import { EMPTY_ANNOTATIONS, useAnnotationStore } from "./store";
+import { copyAnnotationsToNotes, copyGroupToNotes } from "@renderer/notes/copyToNotes";
+import { GroupCard } from "./GroupCard";
+import { addToGroup, groupMembers } from "./groupActions";
+import { EMPTY_ANNOTATIONS, EMPTY_GROUPS, useAnnotationStore } from "./store";
 
 function contextText(annotation: Annotation): string {
   const quote = annotation.quotedText?.trim() ?? "";
@@ -25,27 +28,87 @@ function snippet(text: string | undefined, length: number): string {
   return `${trimmed.slice(0, length)}…`;
 }
 
+type ListView = "pages" | "groups";
+
 export function AnnotationList({ docPath }: { docPath: string }) {
   const items = useAnnotationStore((state) => state.itemsByDoc[docPath] ?? EMPTY_ANNOTATIONS);
+  const groups = useAnnotationStore((state) => state.groupsByDoc[docPath] ?? EMPTY_GROUPS);
   const error = useAnnotationStore((state) => state.errorByDoc[docPath] ?? null);
   const storage = useAnnotationStore((state) => state.storageByDoc[docPath] ?? "none");
   const doc = useAppStore(selectActiveDoc);
+  const [view, setView] = useState<ListView>("pages");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
-  const groups = useMemo(() => {
-    const byPage = new Map<number, Annotation[]>();
-    for (const item of items) {
-      const bucket = byPage.get(item.anchor.page);
+  useEffect(() => {
+    setSelected([]);
+    setAnchorId(null);
+  }, [docPath]);
+
+  const ordered = useMemo(
+    () => [...items].sort((a, b) => a.anchor.page - b.anchor.page || (a.anchor.rects[0]?.y ?? 0) - (b.anchor.rects[0]?.y ?? 0)),
+    [items]
+  );
+
+  const byPage = useMemo(() => {
+    const pages = new Map<number, Annotation[]>();
+    for (const item of ordered) {
+      const bucket = pages.get(item.anchor.page);
       if (bucket) bucket.push(item);
-      else byPage.set(item.anchor.page, [item]);
+      else pages.set(item.anchor.page, [item]);
     }
-    return [...byPage.entries()].sort((a, b) => a[0] - b[0]);
-  }, [items]);
+    return [...pages.entries()].sort((a, b) => a[0] - b[0]);
+  }, [ordered]);
+
+  const groupsOf = useMemo(() => {
+    const map = new Map<string, AnnotationGroup[]>();
+    for (const group of groups) {
+      for (const id of group.annotationIds) map.set(id, [...(map.get(id) ?? []), group]);
+    }
+    return map;
+  }, [groups]);
+
+  const toggle = (id: string, range: boolean): void => {
+    if (range && anchorId) {
+      const from = ordered.findIndex((item) => item.id === anchorId);
+      const to = ordered.findIndex((item) => item.id === id);
+      if (from >= 0 && to >= 0) {
+        const span = ordered.slice(Math.min(from, to), Math.max(from, to) + 1).map((item) => item.id);
+        setSelected((current) => [...new Set([...current, ...span])]);
+        return;
+      }
+    }
+    setAnchorId(id);
+    setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+  };
+
+  const selectedItems = ordered.filter((item) => selected.includes(item.id));
+
+  const groupSelection = async (): Promise<void> => {
+    const first = selectedItems[0];
+    const group = await useAnnotationStore.getState().createGroup({
+      docPath,
+      title: "",
+      annotationIds: selectedItems.map((item) => item.id),
+      ...(first?.color ? { color: first.color } : {})
+    });
+    if (group) {
+      setSelected([]);
+      setView("groups");
+    }
+  };
+
+  const useSelectionAsContext = (): void => {
+    const text = selectedItems.map(contextText).filter(Boolean).join("\n\n");
+    if (text) useAppStore.getState().setSelection({ text });
+  };
 
   if (error) {
     return <p className="rounded border border-border bg-bg-subtle p-2 text-xs leading-relaxed text-warning">{error}</p>;
   }
 
-  if (items.length === 0) {
+  if (items.length === 0 && groups.length === 0) {
     return (
       <EmptyState
         title="No annotations yet"
@@ -62,23 +125,137 @@ export function AnnotationList({ docPath }: { docPath: string }) {
         </p>
       ) : null}
 
-      {groups.map(([page, group]) => (
-        <section key={page}>
-          <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-weak">
-            {pageLabel(page)}
-          </h4>
-          <ul className="space-y-1.5">
-            {group.map((annotation) => (
-              <AnnotationRow key={annotation.id} annotation={annotation} docId={doc?.id ?? null} />
+      <div className="flex items-center gap-1 text-[11px]" role="tablist" aria-label="Annotation view">
+        {(["pages", "groups"] as const).map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            role="tab"
+            aria-selected={view === entry}
+            onClick={() => setView(entry)}
+            className={`rounded px-2 py-0.5 ${view === entry ? "bg-panel text-text" : "text-text-weak hover:text-text"}`}
+          >
+            {entry === "pages" ? "By page" : `Groups (${groups.length})`}
+          </button>
+        ))}
+        <span className="flex-1" />
+        {view === "pages" && selected.length === 0 && items.length > 1 ? (
+          <span className="text-[10px] text-text-weak">Tick highlights to group them</span>
+        ) : null}
+      </div>
+
+      {selected.length > 0 ? (
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded border border-accent/50 bg-panel px-2 py-1 text-[11px] text-text shadow">
+          <span className="mr-1">{selected.length} selected</span>
+          <button
+            type="button"
+            onClick={() => void groupSelection()}
+            className="rounded border border-border px-1.5 py-0.5 hover:bg-bg-subtle"
+          >
+            Group ({selected.length})
+          </button>
+          {groups.length > 0 ? (
+            <span className="relative">
+              <button
+                type="button"
+                onClick={() => setAddOpen((current) => !current)}
+                className="rounded border border-border px-1.5 py-0.5 hover:bg-bg-subtle"
+              >
+                Add to group ▾
+              </button>
+              {addOpen ? (
+                <ul className="absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-y-auto rounded border border-border bg-panel py-1 shadow-lg">
+                  {groups.map((group) => (
+                    <li key={group.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddOpen(false);
+                          void addToGroup(group, selectedItems).then(() => setSelected([]));
+                        }}
+                        className="w-full truncate px-2 py-1 text-left hover:bg-bg-subtle"
+                      >
+                        {group.title || "Untitled group"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </span>
+          ) : null}
+          <button type="button" onClick={useSelectionAsContext} className="rounded border border-border px-1.5 py-0.5 hover:bg-bg-subtle">
+            Use as context
+          </button>
+          <button
+            type="button"
+            onClick={() => void copyAnnotationsToNotes(selectedItems)}
+            className="rounded border border-border px-1.5 py-0.5 hover:bg-bg-subtle"
+          >
+            Copy to notes
+          </button>
+          <span className="flex-1" />
+          <button type="button" onClick={() => setSelected([])} className="rounded px-1.5 py-0.5 text-text-weak hover:text-text">
+            Clear
+          </button>
+        </div>
+      ) : null}
+
+      {view === "groups" ? (
+        groups.length === 0 ? (
+          <p className="text-xs leading-relaxed text-text-weak">
+            No groups yet. In <span className="text-text">By page</span>, tick several highlights and choose{" "}
+            <span className="text-text">Group</span> to gather them under a title with a note and comments.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {groups.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                items={items}
+                onCopyToNotes={() => void copyGroupToNotes(group, groupMembers(group, items))}
+              />
             ))}
           </ul>
-        </section>
-      ))}
+        )
+      ) : (
+        byPage.map(([page, pageItems]) => (
+          <section key={page}>
+            <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-weak">
+              {pageLabel(page)}
+            </h4>
+            <ul className="space-y-1.5">
+              {pageItems.map((annotation) => (
+                <AnnotationRow
+                  key={annotation.id}
+                  annotation={annotation}
+                  docId={doc?.id ?? null}
+                  selected={selected.includes(annotation.id)}
+                  selecting={selected.length > 0}
+                  onToggle={(range) => toggle(annotation.id, range)}
+                  groups={groupsOf.get(annotation.id) ?? []}
+                  onShowGroups={() => setView("groups")}
+                />
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
     </div>
   );
 }
 
-function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: string | null }) {
+interface AnnotationRowProps {
+  annotation: Annotation;
+  docId: string | null;
+  selected: boolean;
+  selecting: boolean;
+  onToggle: (range: boolean) => void;
+  groups: AnnotationGroup[];
+  onShowGroups: () => void;
+}
+
+function AnnotationRow({ annotation, docId, selected, selecting, onToggle, groups, onShowGroups }: AnnotationRowProps) {
   const activeId = useAnnotationStore((state) => state.activeId);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState(annotation.note ?? "");
@@ -124,11 +301,20 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
   return (
     <li
       data-active={active ? "true" : undefined}
-      className={`rounded border p-2 ${
-        active ? "border-accent bg-panel" : "border-border bg-bg-subtle"
+      className={`group/row rounded border p-2 ${
+        selected ? "border-accent/70 bg-panel" : active ? "border-accent bg-panel" : "border-border bg-bg-subtle"
       }`}
     >
       <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={selected}
+          aria-label="Select for grouping"
+          title="Select (Shift-click for a range)"
+          onChange={() => undefined}
+          onClick={(event) => onToggle(event.shiftKey)}
+          className={`mt-0.5 shrink-0 ${selecting || selected ? "" : "opacity-0 group-hover/row:opacity-100"}`}
+        />
         <button
           type="button"
           title="Change color"
@@ -156,6 +342,22 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
           </span>
         </button>
       </div>
+
+      {groups.length > 0 ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {groups.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              onClick={onShowGroups}
+              className="rounded bg-panel px-1.5 py-px text-[10px] text-text-weak hover:text-text"
+              style={{ borderLeft: `2px solid ${group.color ?? DEFAULT_COLOR}` }}
+            >
+              {group.title || "Untitled group"}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {showColors ? (
         <div className="mt-2">
@@ -221,6 +423,14 @@ function AnnotationRow({ annotation, docId }: { annotation: Annotation; docId: s
           className="rounded border border-border px-1.5 py-0.5 hover:bg-panel hover:text-text"
         >
           Use as context
+        </button>
+        <button
+          type="button"
+          onClick={() => void copyAnnotationsToNotes([annotation])}
+          title="Append this highlight to the open note, with a link back to it"
+          className="rounded border border-border px-1.5 py-0.5 hover:bg-panel hover:text-text"
+        >
+          Copy to notes
         </button>
         <span className="flex-1" />
         <button

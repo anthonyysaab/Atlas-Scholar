@@ -4,6 +4,7 @@ import { emitToRenderer } from "@main/events";
 import { LinksStore } from "@main/links/store";
 import { ThreadStore } from "@main/llm/threadStore";
 import { FlashcardStore } from "@main/study/flashcards";
+import { NotesStore } from "@main/notes/store";
 import { WorkspaceStore } from "@main/workspace";
 import { libraryScoped } from "./context";
 import { hashFileMemo } from "./hash";
@@ -33,3 +34,5 @@ export const getAnnotationStore = libraryScoped(
       ...(ctx.kind === "library" ? { libraryDir: ctx.location("annotations") } : {})
     })
 );
+
+export const getNotesStore = libraryScoped((ctx) => new NotesStore(ctx.location("notes"), { codec: ctx.codec }));

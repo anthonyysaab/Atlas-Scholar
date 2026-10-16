@@ -17,7 +17,7 @@ import type {
   ProposalPatch
 } from "@shared/types";
 import { samePath } from "@shared/docLabel";
-import { cleanConceptName, conceptSimilarity, foldConceptKey, passageKey } from "@shared/links/normalize";
+import { cleanConceptName, conceptSimilarity, conceptStemKey, containsConcept, foldConceptKey, passageKey } from "@shared/links/normalize";
 import { writeJsonAtomic } from "@main/library/atomic";
 import { IDENTITY_CODEC, isUrl, pathMover, type PathCodec, type PathMove } from "@main/library/paths";
 import { asArray, asNumber, asRecord, asString, parseRects } from "@main/providers/json";
@@ -44,6 +44,8 @@ export interface LinksFile {
   extractions: Record<string, ExtractionRecord>;
   /** Folded concept keys the user rejected, per document content hash, so re-extraction skips them. */
   rejected: Record<string, string[]>;
+  /** Proposals the ranking hid as less central, per content hash; restorable, and not re-proposed. */
+  pruned?: Record<string, ConceptProposal[]>;
 }
 
 export interface ProposalDraft {
@@ -69,7 +71,14 @@ export function mapLinksPaths(data: LinksFile, fn: (path: string) => string): Li
     ...data,
     passages: data.passages.map((passage) => ({ ...passage, docPath: fn(passage.docPath) })),
     proposals: data.proposals.map((proposal) => ({ ...proposal, docPath: fn(proposal.docPath) })),
-    extractions
+    extractions,
+    ...(data.pruned
+      ? {
+          pruned: Object.fromEntries(
+            Object.entries(data.pruned).map(([hash, list]) => [hash, list.map((proposal) => ({ ...proposal, docPath: fn(proposal.docPath) }))])
+          )
+        }
+      : {})
   };
 }
 
@@ -209,6 +218,7 @@ function parseProposal(value: unknown): ConceptProposal | null {
   if (!id || !docPath || !contentHash || !name || !createdAt) return null;
   const matchConceptId = asString(record?.["matchConceptId"]);
   const suggestedConceptId = asString(record?.["suggestedConceptId"]);
+  const similarProposalId = asString(record?.["similarProposalId"]);
   return {
     id,
     docPath,
@@ -218,6 +228,7 @@ function parseProposal(value: unknown): ConceptProposal | null {
     passages: parseProposalPassages(record?.["passages"]),
     ...(matchConceptId ? { matchConceptId } : {}),
     ...(suggestedConceptId ? { suggestedConceptId } : {}),
+    ...(similarProposalId ? { similarProposalId } : {}),
     model: asString(record?.["model"]) ?? "",
     createdAt
   };
@@ -266,6 +277,11 @@ function parseFile(value: unknown): LinksFile {
   for (const [hash, entry] of Object.entries(asRecord(record["rejected"]) ?? {})) {
     rejected[hash] = asArray(entry).flatMap((key) => (typeof key === "string" ? [key] : []));
   }
+  const pruned: Record<string, ConceptProposal[]> = {};
+  for (const [hash, entry] of Object.entries(asRecord(record["pruned"]) ?? {})) {
+    const list = parseList(entry, parseProposal);
+    if (list.length > 0) pruned[hash] = list;
+  }
   return {
     version: 1,
     revision: asNumber(record["revision"]) ?? 0,
@@ -274,7 +290,8 @@ function parseFile(value: unknown): LinksFile {
     edges,
     proposals: parseList(record["proposals"], parseProposal),
     extractions,
-    rejected
+    rejected,
+    ...(Object.keys(pruned).length > 0 ? { pruned } : {})
   };
 }
 
@@ -285,7 +302,11 @@ function conceptKeys(concept: Concept): string[] {
 export function findConceptByName(concepts: readonly Concept[], name: string): Concept | undefined {
   const key = foldConceptKey(name);
   if (!key) return undefined;
-  return concepts.find((concept) => conceptKeys(concept).includes(key));
+  const exact = concepts.find((concept) => conceptKeys(concept).includes(key));
+  if (exact) return exact;
+  // Singular and plural of one name are one concept.
+  const stem = conceptStemKey(name);
+  return concepts.find((concept) => [concept.name, ...concept.aliases].some((entry) => conceptStemKey(entry) === stem));
 }
 
 function similarConcept(concepts: readonly Concept[], name: string, excludeId?: string): Concept | undefined {
@@ -785,29 +806,39 @@ export class LinksStore {
    */
   addProposals(docPath: string, contentHash: string, model: string, drafts: readonly ProposalDraft[], cap: number): Promise<number> {
     return this.mutate("proposals", (data) => {
-      const rejected = new Set(data.rejected[contentHash] ?? []);
+      const rejected = new Set((data.rejected[contentHash] ?? []).map(conceptStemKey));
+      // Names the ranking hid stay hidden on later runs; "show" in the review queue restores them.
+      const hidden = new Set(
+        (data.pruned?.[contentHash] ?? []).flatMap((proposal) => [proposal.name, ...proposal.aliases].map(conceptStemKey))
+      );
       let added = 0;
       for (const draft of drafts) {
         const name = cleanConceptName(draft.name);
         const key = foldConceptKey(name);
-        if (!key || rejected.has(key)) continue;
+        const stem = conceptStemKey(name);
+        if (!key || rejected.has(stem) || hidden.has(stem)) continue;
         const pending = data.proposals.find(
           (proposal) =>
             proposal.contentHash === contentHash &&
-            [proposal.name, ...proposal.aliases].some((entry) => foldConceptKey(entry) === key)
+            [proposal.name, ...proposal.aliases].some((entry) => conceptStemKey(entry) === stem)
         );
         if (pending) {
           const chunks = new Set(pending.passages.map((entry) => entry.chunkId));
           pending.passages.push(...draft.passages.filter((entry) => !chunks.has(entry.chunkId)));
-          pending.aliases = cleanAliases([...pending.aliases, ...draft.aliases], pending.name);
+          pending.aliases = cleanAliases([...pending.aliases, name, ...draft.aliases], pending.name);
           continue;
         }
         const docCount = data.proposals.filter((proposal) => proposal.contentHash === contentHash).length;
         if (docCount >= cap) continue;
         const match = findConceptByName(data.concepts, name);
         const similar = match ? undefined : similarConcept(data.concepts, name);
+        const id = randomUUID();
+        const related = data.proposals.find(
+          (proposal) => proposal.contentHash === contentHash && (containsConcept(name, proposal.name) || containsConcept(proposal.name, name))
+        );
+        if (related && containsConcept(related.name, name) && !related.similarProposalId) related.similarProposalId = id;
         data.proposals.push({
-          id: randomUUID(),
+          id,
           docPath,
           contentHash,
           name,
@@ -815,6 +846,7 @@ export class LinksStore {
           passages: draft.passages.map((entry) => ({ ...entry, quote: cleanQuote(entry.quote) })),
           ...(match ? { matchConceptId: match.id } : {}),
           ...(similar ? { suggestedConceptId: similar.id } : {}),
+          ...(related && containsConcept(name, related.name) ? { similarProposalId: related.id } : {}),
           model,
           createdAt: this.now()
         });
@@ -822,6 +854,39 @@ export class LinksStore {
       }
       return added;
     });
+  }
+
+  /** Hide the document's proposals outside `keepIds` (the ranking's pick); returns how many were hidden. */
+  pruneProposals(contentHash: string, keepIds: readonly string[]): Promise<number> {
+    return this.mutate("proposals", (data) => {
+      const keep = new Set(keepIds);
+      const hidden = data.proposals.filter((proposal) => proposal.contentHash === contentHash && !keep.has(proposal.id));
+      if (hidden.length === 0) return 0;
+      const pruned = data.pruned ?? {};
+      pruned[contentHash] = [...(pruned[contentHash] ?? []), ...hidden];
+      data.pruned = pruned;
+      const gone = new Set(hidden.map((proposal) => proposal.id));
+      data.proposals = data.proposals.filter((proposal) => !gone.has(proposal.id));
+      for (const proposal of data.proposals) {
+        if (proposal.similarProposalId && gone.has(proposal.similarProposalId)) delete proposal.similarProposalId;
+      }
+      return hidden.length;
+    });
+  }
+
+  /** Bring back what the ranking hid for this document; returns how many came back. */
+  restorePruned(contentHash: string): Promise<number> {
+    return this.mutate("proposals", (data) => {
+      const hidden = data.pruned?.[contentHash] ?? [];
+      if (hidden.length === 0) return 0;
+      data.proposals.push(...hidden);
+      if (data.pruned) delete data.pruned[contentHash];
+      return hidden.length;
+    });
+  }
+
+  async prunedCount(contentHash: string): Promise<number> {
+    return (await this.snapshot()).pruned?.[contentHash]?.length ?? 0;
   }
 
   async getExtraction(contentHash: string): Promise<ExtractionRecord | undefined> {

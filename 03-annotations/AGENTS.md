@@ -105,3 +105,9 @@ sidecar across relaunch; the original is never modified; and annotated selection
   - PDF rotation is preserved by the percentage math but was not manually exercised (viewer does not expose a rotate control).
 - Interfaces changed: none (used the pre-added `Annotation.stale`; no edits to `src/shared` or `docs/`).
 - Environment notes: tests run in `vitest` node env; `src/main/annotations.ts` uses a relative import of `./providers/json` so it can be unit-tested (vitest only aliases `@shared`).
+- Note (2026-10-16): highlights are merged per line at selection and render time
+  (`mergeLineRects`), multiply onto the page, snap to whole words, and a quick second drag that
+  touches the first merges into it. Colours: `ui.highlightPalette/highlightColor/highlightIntensity`
+  (Settings → Appearance), swatches in the selection toolbar. Copy/Quote buttons, cleaned Ctrl+C
+  (`cleanPdfText`) and a native context menu. Annotation groups (`AnnotationsApi.groups`, `GroupCard`)
+  with Markdown note, comments, link to graph; Notes tab (`NotesApi`, D23) with "Copy to notes".

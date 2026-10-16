@@ -2,6 +2,7 @@ import type { ChatMessage, ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, requireBody } from "./http";
 import { asArray, asRecord, asString, parseJson } from "./json";
 import { parseSse } from "./sse";
+import { ThinkStream, thinkingFields } from "./thinking";
 import type { ProviderModule } from "./types";
 
 interface GeminiContent {
@@ -39,7 +40,7 @@ export const gemini: ProviderModule = {
   needsSecret: true,
   defaultBaseUrl: "https://generativelanguage.googleapis.com",
 
-  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, signal }) {
+  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, thinking, signal }) {
     const { system, contents } = toContents(messages);
     const url = `${joinUrl(baseUrl, `/v1beta/${modelPath(model)}:streamGenerateContent`)}?alt=sse&key=${encodeURIComponent(apiKey ?? "")}`;
     const response = await fetch(url, {
@@ -50,22 +51,29 @@ export const gemini: ProviderModule = {
         ...(system !== undefined ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         generationConfig: {
           ...(temperature !== undefined ? { temperature } : {}),
-          ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {})
+          ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
+          ...thinkingFields("gemini", baseUrl, model, thinking ?? "auto", maxTokens)
         }
       }),
       signal
     });
     await ensureOk(response);
 
+    const think = new ThinkStream();
     for await (const event of parseSse(requireBody(response), signal)) {
       const payload = asRecord(parseJson(event.data));
       const candidate = asRecord(asArray(payload?.["candidates"])[0]);
       const parts = asArray(asRecord(candidate?.["content"])?.["parts"]);
       for (const part of parts) {
-        const text = asString(asRecord(part)?.["text"]);
-        if (text !== undefined && text.length > 0) yield { delta: text };
+        const record = asRecord(part);
+        const text = asString(record?.["text"]) ?? "";
+        // Thought summaries arrive as parts flagged `thought` when includeThoughts is on.
+        const delta = record?.["thought"] === true ? think.reasoning(text) : think.answer(text);
+        if (delta) yield { delta };
       }
     }
+    const tail = think.end();
+    if (tail) yield { delta: tail };
   },
 
   async embed({ baseUrl, apiKey, model, input, signal }) {

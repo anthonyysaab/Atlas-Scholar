@@ -1,20 +1,41 @@
-export interface HighlightColor {
-  id: string;
-  label: string;
-  value: string;
+import { useMemo } from "react";
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  DEFAULT_HIGHLIGHT_INTENSITY,
+  DEFAULT_HIGHLIGHT_PALETTE,
+  DEFAULT_HIGHLIGHT_SWATCHES,
+  type HighlightSwatch
+} from "@shared/highlights";
+import { useSettingsStore } from "@renderer/state/settingsStore";
+
+export type HighlightColor = HighlightSwatch;
+
+/** Fallback for annotations saved without a colour. */
+export const DEFAULT_COLOR = DEFAULT_HIGHLIGHT_COLOR;
+
+function swatchesFor(palette: readonly string[]): HighlightColor[] {
+  return DEFAULT_HIGHLIGHT_SWATCHES.map((swatch, index) => {
+    const value = palette[index] ?? swatch.value;
+    return value === swatch.value ? swatch : { id: swatch.id, label: `Colour ${index + 1}`, value };
+  });
 }
 
-/** Shared highlight palette; `value` is what gets persisted in `Annotation.color`. */
-export const HIGHLIGHT_COLORS: HighlightColor[] = [
-  { id: "yellow", label: "Yellow", value: "#ffe066" },
-  { id: "green", label: "Green", value: "#8ce99a" },
-  { id: "blue", label: "Blue", value: "#74c0fc" },
-  { id: "pink", label: "Pink", value: "#f783ac" },
-  { id: "purple", label: "Purple", value: "#b197fc" }
-];
+/** The user's highlight swatches (Settings → Appearance), in palette order. */
+export function useHighlightPalette(): HighlightColor[] {
+  const palette = useSettingsStore((state) => state.settings?.ui.highlightPalette ?? DEFAULT_HIGHLIGHT_PALETTE);
+  return useMemo(() => swatchesFor(palette), [palette]);
+}
 
-export const DEFAULT_COLOR = "#ffe066";
+export function useHighlightIntensity(): number {
+  return useSettingsStore((state) => state.settings?.ui.highlightIntensity ?? DEFAULT_HIGHLIGHT_INTENSITY);
+}
 
-export function labelForColor(value: string | undefined): string {
-  return HIGHLIGHT_COLORS.find((color) => color.value === value)?.label ?? "Yellow";
+/** Colour for a new highlight: the last swatch the user picked. */
+export function currentHighlightColor(): string {
+  return useSettingsStore.getState().settings?.ui.highlightColor ?? DEFAULT_HIGHLIGHT_COLOR;
+}
+
+export function rememberHighlightColor(color: string): void {
+  if (color === currentHighlightColor()) return;
+  void useSettingsStore.getState().patchUI({ highlightColor: color });
 }

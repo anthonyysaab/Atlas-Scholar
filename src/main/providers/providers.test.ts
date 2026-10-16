@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { anthropic } from "./anthropic";
 import { parseCatalogModels } from "./catalogParse";
@@ -70,7 +71,7 @@ describe("openai-compatible provider", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  async function sentBody(baseUrl: string, model: string, thinking?: boolean): Promise<Record<string, unknown>> {
+  async function sentBody(baseUrl: string, model: string, thinking?: ThinkingLevel): Promise<Record<string, unknown>> {
     let captured: RequestInit | undefined;
     vi.stubGlobal(
       "fetch",
@@ -95,18 +96,52 @@ describe("openai-compatible provider", () => {
   }
 
   it("turns DeepSeek's thinking off only when asked, and only for DeepSeek", async () => {
-    expect((await sentBody("https://api.deepseek.com", "deepseek-flash", false))["thinking"]).toEqual({ type: "disabled" });
+    expect((await sentBody("https://api.deepseek.com", "deepseek-flash", "off"))["thinking"]).toEqual({ type: "disabled" });
+    expect((await sentBody("https://api.deepseek.com", "deepseek-flash", "medium"))["thinking"]).toEqual({ type: "enabled" });
     expect((await sentBody("https://api.deepseek.com", "deepseek-flash"))["thinking"]).toBeUndefined();
-    expect((await sentBody("https://api.openai.com/v1", "gpt-x", false))["thinking"]).toBeUndefined();
+    expect((await sentBody("https://api.openai.com/v1", "gpt-x", "off"))["thinking"]).toBeUndefined();
+  });
+
+  it("sends reasoning effort only to models and services that take it", async () => {
+    expect((await sentBody("https://api.openai.com/v1", "o4-mini", "high"))["reasoning_effort"]).toBe("high");
+    expect((await sentBody("https://api.openai.com/v1", "gpt-5-mini", "off"))["reasoning_effort"]).toBe("minimal");
+    expect((await sentBody("https://api.openai.com/v1", "gpt-4.1", "high"))["reasoning_effort"]).toBeUndefined();
+    expect((await sentBody("http://127.0.0.1:1234/v1", "openai/gpt-oss-20b", "low"))["reasoning_effort"]).toBe("low");
+    expect((await sentBody("https://openrouter.ai/api/v1", "anthropic/claude", "medium"))["reasoning"]).toEqual({ effort: "medium" });
+    expect((await sentBody("https://openrouter.ai/api/v1", "anthropic/claude", "off"))["reasoning"]).toEqual({ enabled: false });
+  });
+
+  it("wraps streamed reasoning fields in a leading think block", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Let me " } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "think." } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "Answer" } }] })}\n\n`,
+          "data: [DONE]\n\n"
+        ])
+      )
+    );
+    let text = "";
+    for await (const chunk of openaiCompatible.chat({
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-reasoner",
+      messages: [{ role: "user", content: "q" }],
+      signal: abortSignal()
+    })) {
+      text += chunk.delta;
+    }
+    expect(text).toBe("<think>Let me think.</think>\n\nAnswer");
   });
 
   it("adds Qwen3's /no_think switch to the last user turn", async () => {
-    const qwen = await sentBody("http://127.0.0.1:1235/v1", "qwen3-8b", false);
+    const qwen = await sentBody("http://127.0.0.1:1235/v1", "qwen3-8b", "off");
     expect(qwen["messages"]).toEqual([
       { role: "system", content: "rules" },
       { role: "user", content: "passage\n/no_think" }
     ]);
-    const other = await sentBody("http://127.0.0.1:1235/v1", "llama-3.1-8b", false);
+    const other = await sentBody("http://127.0.0.1:1235/v1", "llama-3.1-8b", "off");
     expect(other["messages"]).toEqual([
       { role: "system", content: "rules" },
       { role: "user", content: "passage" }

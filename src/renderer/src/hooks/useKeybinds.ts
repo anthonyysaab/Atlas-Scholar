@@ -19,6 +19,8 @@ export function useKeybinds(): void {
         }
         return;
       }
+      // An editor that claims a chord (Ctrl+Enter to save a note, Ctrl+B for bold) has handled it.
+      if (event.defaultPrevented) return;
 
       switch (event.key.toLowerCase()) {
         case "o":
@@ -56,6 +58,10 @@ export function useKeybinds(): void {
         case "5":
           event.preventDefault();
           void switchPanelTab("links");
+          break;
+        case "6":
+          event.preventDefault();
+          void switchPanelTab("notes");
           break;
         case "g": {
           event.preventDefault();

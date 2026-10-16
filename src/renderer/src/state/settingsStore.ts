@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DEFAULT_HIGHLIGHT_COLOR, DEFAULT_HIGHLIGHT_INTENSITY, DEFAULT_HIGHLIGHT_PALETTE } from "@shared/highlights";
 import { THEME_PREFS } from "@shared/themes";
 import type { Settings } from "@shared/types";
 
@@ -10,7 +11,10 @@ export const DEFAULT_UI: UI = {
   panelOpen: true,
   panelTab: "chat",
   sidebarSize: 20,
-  panelSize: 30
+  panelSize: 30,
+  highlightPalette: [...DEFAULT_HIGHLIGHT_PALETTE],
+  highlightColor: DEFAULT_HIGHLIGHT_COLOR,
+  highlightIntensity: DEFAULT_HIGHLIGHT_INTENSITY
 };
 
 interface SettingsState {

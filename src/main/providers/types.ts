@@ -1,4 +1,4 @@
-import type { ChatMessage, ModelInfo } from "@shared/types";
+import type { ChatMessage, ModelInfo, ThinkingLevel } from "@shared/types";
 
 export interface ChatArgs {
   baseUrl: string;
@@ -7,8 +7,8 @@ export interface ChatArgs {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
-  /** `false` asks a reasoning model to answer directly, where the provider or model has a switch. */
-  thinking?: boolean;
+  /** Already narrowed to what the model supports (see `effectiveLevel`); absent means "auto". */
+  thinking?: ThinkingLevel;
   signal: AbortSignal;
 }
 

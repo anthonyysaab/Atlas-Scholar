@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { IndexStatus } from "@shared/types";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
+import { DocumentMapSection, type OutlineEntry } from "@renderer/context/DocumentMapSection";
 import { ThemesSection } from "@renderer/context/ThemesSection";
 import { useExtractedDoc } from "@renderer/context/useExtractedDoc";
 import { useIndexStatus } from "@renderer/context/useIndexStatus";
@@ -9,8 +10,6 @@ import { requestReindex, switchPanelTab } from "@renderer/lib/commands";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { extractionFor, useLinksStore } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
-
-const MAP_LIMIT = 400;
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -50,15 +49,13 @@ export function ContextTab() {
     await useSettingsStore.getState().patch({ graph: { ...graphSettings, extractOnIndex: value } });
   };
 
-  const mapEntries = useMemo(() => {
-    if (!extracted) return [];
-    if (extracted.outline && extracted.outline.length > 0) {
-      return extracted.outline.map((entry) => ({ title: entry.title, page: entry.page, level: entry.level }));
-    }
-    if (extracted.pages) {
-      return extracted.pages.map((page) => ({ title: `Page ${page.index}`, page: page.index, level: 1 }));
-    }
-    return [];
+  const mapEntries = useMemo((): OutlineEntry[] => {
+    if (!extracted?.outline) return [];
+    return extracted.outline.map((entry) => ({
+      title: entry.title,
+      level: entry.level,
+      ...(entry.page !== undefined ? { page: entry.page } : {})
+    }));
   }, [extracted]);
 
   if (!doc) {
@@ -172,30 +169,7 @@ export function ContextTab() {
         </div>
       </section>
 
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-weak">Document map</h3>
-        {mapEntries.length === 0 ? (
-          <p className="text-xs text-text-weak">No outline available for this document.</p>
-        ) : (
-          <ul className="space-y-0.5 text-xs">
-            {mapEntries.slice(0, MAP_LIMIT).map((entry, index) => (
-              <li
-                key={`${entry.page ?? "x"}-${index}`}
-                className="flex items-center justify-between gap-2 rounded px-1.5 py-0.5 hover:bg-bg-subtle"
-                style={{ paddingLeft: `${(entry.level - 1) * 10 + 6}px` }}
-              >
-                <span className="truncate text-text-weak" title={entry.title}>
-                  {entry.title}
-                </span>
-                {entry.page !== undefined ? <span className="shrink-0 opacity-70">{entry.page}</span> : null}
-              </li>
-            ))}
-          </ul>
-        )}
-        {mapEntries.length > MAP_LIMIT ? (
-          <p className="mt-1 text-[11px] text-text-weak">+{mapEntries.length - MAP_LIMIT} more…</p>
-        ) : null}
-      </section>
+      <DocumentMapSection docPath={doc.ref.path} status={status} outline={mapEntries} />
     </div>
   );
 }

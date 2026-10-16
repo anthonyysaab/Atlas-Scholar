@@ -250,3 +250,33 @@ script in the isolated `persist:rabrowser` view (it clones the selected range an
 Chromium. All saved text the app shows (quotes, excerpts, concept notes, chat quotes and
 reasoning) renders through the same Markdown + KaTeX renderer as chat answers.
 **Date:** 2026-10-15
+
+## D22 — Links chat: the model proposes operations, the user applies them
+**Decision:** The Links tab (one document) and the graph view (whole library) have a chat bar
+where the chat model edits the concept graph: create, rename, alias, annotate, merge and delete
+concepts; unlink; accept, reject, merge and rename proposals; link search results, passages and
+annotation groups to concepts. The model sees a compact snapshot with short handles (c1, p1, m1,
+e1, q1, g1, r1) and answers with JSON `{reply, ops}`; main resolves handles to ids, drops
+operations that name unknown objects, re-anchors quotes to the passage text, and keeps the plan.
+The renderer sees only previews; **nothing changes until the user clicks Apply**, operation by
+operation, with merges, deletions, unlinks and rejections unchecked by default. Each operation
+runs and fails on its own; a plan can be applied in parts but no operation runs twice.
+**Why:** No provider module supports tool calling, and four wire formats would each need it; the
+JSON-reply pattern already works for extraction on small local models. Keeping the review gate
+extends D17: the model may suggest anything, but only the user changes the graph.
+**Consequence:** `LinksApi.assist/cancelAssist/applyPlan`; plans live in main (last 20, dropped
+on library switch), so the renderer never sends operations back. The chat bar shares the slash
+registry and the thinking level with the chat composer.
+**Date:** 2026-10-16
+
+## D23 — Notes and annotation groups are plain files the user can read
+**Decision:** The Notes tab keeps one Markdown file per note in `.assistant/notes/` (front matter +
+body; deleting moves it to `.trash/`). Links from a note to a highlight are ordinary Markdown links
+to `#annotation:<id>@<path>`, with the path stored library-relative. Annotation groups (title, long
+note, comments, ordered members, linked concept) live in the document's annotations file under an
+optional `groups` key, so files written before groups load unchanged.
+**Why:** Notes are the user's own writing and must survive the app: any editor can open them, and a
+library folder stays portable. Groups belong to one document's annotations, like the highlights.
+**Consequence:** `NotesApi`, `AnnotationsApi.groups`; Markdown renders `#annotation:` links as chips
+that open the document at the highlight.
+**Date:** 2026-10-16

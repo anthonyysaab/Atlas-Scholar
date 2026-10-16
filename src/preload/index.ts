@@ -8,8 +8,16 @@ import { IPC } from "@shared/channels";
 import { fromIpcError, type IpcResult } from "@shared/errors";
 import type {
   Annotation,
+  AnnotationGroup,
+  LinkApplyResult,
+  LinkAssistPlan,
+  MapProgress,
+  Note,
+  NoteSummary,
+  ThinkingSupport,
   Api,
   Bookmark,
+  DocMap,
   BrowserApi,
   BrowserBounds,
   BrowserState,
@@ -115,11 +123,29 @@ const docApi: DocApi = {
   extract: (path) => invoke<ExtractedDoc>(IPC.doc.extract, path)
 };
 
+const notesApi: Api["notes"] = {
+  list: () => invoke<NoteSummary[]>(IPC.notes.list),
+  get: (id) => invoke<Note>(IPC.notes.get, id),
+  create: (input) => invoke<Note>(IPC.notes.create, input),
+  update: (id, patch) => invoke<Note>(IPC.notes.update, id, patch),
+  remove: (id) => invoke<void>(IPC.notes.remove, id)
+};
+
 const annotationsApi: Api["annotations"] = {
   list: (docPath) => invoke<Annotation[]>(IPC.annotations.list, docPath),
   add: (input) => invoke<Annotation>(IPC.annotations.add, input),
   update: (id, patch) => invoke<Annotation>(IPC.annotations.update, id, patch),
-  remove: (id) => invoke<void>(IPC.annotations.remove, id)
+  remove: (id) => invoke<void>(IPC.annotations.remove, id),
+  groups: {
+    list: (docPath) => invoke<AnnotationGroup[]>(IPC.annotations.groupsList, docPath),
+    create: (input) => invoke<AnnotationGroup>(IPC.annotations.groupsCreate, input),
+    update: (id, patch) => invoke<AnnotationGroup>(IPC.annotations.groupsUpdate, id, patch),
+    remove: (id) => invoke<void>(IPC.annotations.groupsRemove, id),
+    addComment: (groupId, body) => invoke<AnnotationGroup>(IPC.annotations.groupsAddComment, groupId, body),
+    updateComment: (groupId, commentId, body) =>
+      invoke<AnnotationGroup>(IPC.annotations.groupsUpdateComment, groupId, commentId, body),
+    removeComment: (groupId, commentId) => invoke<AnnotationGroup>(IPC.annotations.groupsRemoveComment, groupId, commentId)
+  }
 };
 
 const ragApi: RagApi = {
@@ -130,13 +156,17 @@ const ragApi: RagApi = {
     invoke<RagQueryResult>(IPC.rag.query, input),
   search: (input) => invoke<LibrarySearchResult>(IPC.rag.search, input),
   themes: (docPath) => invoke<DocThemes | null>(IPC.rag.themes, docPath),
-  buildThemes: (docPath) => invoke<DocThemes>(IPC.rag.buildThemes, docPath)
+  buildThemes: (docPath) => invoke<DocThemes>(IPC.rag.buildThemes, docPath),
+  map: (docPath) => invoke<DocMap | null>(IPC.rag.map, docPath),
+  buildMap: (docPath) => invoke<MapProgress>(IPC.rag.buildMap, docPath),
+  cancelMap: (docPath) => invoke<void>(IPC.rag.cancelMap, docPath)
 };
 
 const llmApi: Api["llm"] = {
   chatStream: (req: ChatRequest) => invoke<void>(IPC.llm.chatStream, req),
   abort: (streamId) => invoke<void>(IPC.llm.abort, streamId),
-  models: (providerId) => invoke<ModelInfo[]>(IPC.llm.models, providerId)
+  models: (providerId) => invoke<ModelInfo[]>(IPC.llm.models, providerId),
+  thinkingSupport: (providerId, model) => invoke<ThinkingSupport>(IPC.llm.thinkingSupport, providerId, model)
 };
 
 const providersApi: Api["providers"] = {
@@ -173,7 +203,8 @@ const eventsApi: Api["events"] = {
   onFileChanged: (cb) =>
     subscribe<FileChangedEvent>(IPC.file.changed, (event) => cb({ path: event.path, type: event.type })),
   onLinksChanged: (cb) => subscribe<LinksChangedEvent>(IPC.links.changed, cb),
-  onExtractProgress: (cb) => subscribe<ExtractProgress>(IPC.links.extractProgress, cb)
+  onExtractProgress: (cb) => subscribe<ExtractProgress>(IPC.links.extractProgress, cb),
+  onMapProgress: (cb) => subscribe<MapProgress>(IPC.rag.mapProgress, cb)
 };
 
 const healthApi: Api["health"] = {
@@ -281,8 +312,12 @@ const linksApi: LinksApi = {
     update: (id, patch) => invoke<ConceptProposal>(IPC.links.proposalsUpdate, id, patch),
     accept: (ids) => invoke<LinkResult[]>(IPC.links.proposalsAccept, ids),
     reject: (ids) => invoke<void>(IPC.links.proposalsReject, ids),
-    merge: (ids, name) => invoke<ConceptProposal>(IPC.links.proposalsMerge, ids, name)
+    merge: (ids, name) => invoke<ConceptProposal>(IPC.links.proposalsMerge, ids, name),
+    restorePruned: (docPath) => invoke<number>(IPC.links.proposalsRestorePruned, docPath)
   },
+  assist: (req) => invoke<LinkAssistPlan>(IPC.links.assist, req),
+  cancelAssist: (requestId) => invoke<void>(IPC.links.assistCancel, requestId),
+  applyPlan: (planId, indexes) => invoke<LinkApplyResult>(IPC.links.applyPlan, planId, indexes),
   extract: (docPath) => invoke<ExtractProgress>(IPC.links.extract, docPath),
   cancelExtract: (docPath) => invoke<void>(IPC.links.extractCancel, docPath),
   extractStatus: (docPath) => invoke<ExtractProgress | null>(IPC.links.extractStatus, docPath)
@@ -292,6 +327,7 @@ const api: Api = {
   file: fileApi,
   doc: docApi,
   annotations: annotationsApi,
+  notes: notesApi,
   rag: ragApi,
   llm: llmApi,
   providers: providersApi,

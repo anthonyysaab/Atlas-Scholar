@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { IPC } from "@shared/channels";
-import type { ConceptTarget, LinkInput, LinkSource, PassageDraft, ProposalPatch } from "@shared/types";
+import type { ConceptTarget, LinkAssistRequest, LinkAssistTurn, LinkInput, LinkSource, PassageDraft, ProposalPatch } from "@shared/types";
 import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
 import { onLibrarySwitch, requireLibrary } from "@main/library/context";
-import { getLinksStore } from "@main/library/scopedStores";
+import { getAnnotationStore, getLinksStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import {
   cancelAllExtractions,
@@ -13,9 +13,12 @@ import {
   setExtractDeps,
   startExtraction
 } from "@main/links/extractRunner";
+import { applyPlan, cancelAssist, forgetPlans, runAssist, type AssistDeps } from "@main/links/assist";
 import { parseProposalPassages } from "@main/links/store";
+import { getDocMap } from "@main/rag/docMapRunner";
 import { asArray, asNumber, asRecord, asString, parseRects } from "@main/providers/json";
-import { setIndexCancelHook, setIndexReadyHook, setKnownConceptsProvider } from "@main/rag/index";
+import { ensureDocMap } from "@main/rag/docMapRunner";
+import { searchLibraryText, setIndexCancelHook, setIndexReadyHook, setKnownConceptsProvider } from "@main/rag/index";
 import { vectorStore } from "@main/rag/vector-store";
 import { handle } from "./registry";
 
@@ -127,6 +130,48 @@ function parseProposalPatch(value: unknown): ProposalPatch {
   };
 }
 
+const MAX_ASSIST_CHARS = 4000;
+const MAX_ASSIST_HISTORY = 6;
+
+export function parseAssistRequest(value: unknown): LinkAssistRequest {
+  const record = asRecord(value);
+  const requestId = requireString(record?.["requestId"], "request id");
+  const message = requireString(asString(record?.["message"])?.trim(), "message");
+  if (message.length > MAX_ASSIST_CHARS) throw new Error("That request is too long");
+  const scopeRecord = asRecord(record?.["scope"]);
+  const scope: LinkAssistRequest["scope"] =
+    scopeRecord?.["kind"] === "library"
+      ? { kind: "library" }
+      : { kind: "document", docPath: requireString(scopeRecord?.["docPath"], "document path") };
+  const history = asArray(record?.["history"])
+    .flatMap((entry): LinkAssistTurn[] => {
+      const turn = asRecord(entry);
+      const role = turn?.["role"];
+      const content = asString(turn?.["content"]);
+      return (role === "user" || role === "assistant") && content ? [{ role, content: content.slice(0, MAX_ASSIST_CHARS) }] : [];
+    })
+    .slice(-MAX_ASSIST_HISTORY);
+  return { requestId, scope, message, history };
+}
+
+function parseIndexes(value: unknown): number[] {
+  return asArray(value).flatMap((entry) => (typeof entry === "number" && Number.isInteger(entry) && entry >= 0 ? [entry] : []));
+}
+
+const assistDeps: AssistDeps = {
+  settings: getSettings,
+  complete: completeChat,
+  store: () => getLinksStore(),
+  search: async (text, docPaths) =>
+    (await searchLibraryText({ text, topK: 8, ...(docPaths ? { docPaths } : {}) })).retrieved,
+  docMap: (docPath) => getDocMap(docPath),
+  groups: async (docPath) => {
+    const store = getAnnotationStore();
+    const annotations = await store.list(docPath);
+    return { groups: await store.listGroups(docPath), annotations };
+  }
+};
+
 export function registerLinksIpc(): void {
   const ipc = IPC.links;
 
@@ -136,6 +181,7 @@ export function registerLinksIpc(): void {
     emit: (progress) => emitToRenderer(ipc.extractProgress, progress),
     findIndex: (docPath) => vectorStore.findByDocPath(docPath),
     cacheDir: () => requireLibrary().location("concepts"),
+    docMap: (index) => ensureDocMap(index),
     now: () => new Date()
   });
   setKnownConceptsProvider((docPaths) => getLinksStore().conceptNamesFor(docPaths));
@@ -148,6 +194,7 @@ export function registerLinksIpc(): void {
   });
   setIndexCancelHook((docPath) => cancelExtraction(docPath));
   onLibrarySwitch(cancelAllExtractions);
+  onLibrarySwitch(forgetPlans);
 
   handle(ipc.graph, () => getLinksStore().graph());
   handle(ipc.conceptsCreate, (input: unknown) => getLinksStore().createConcept(parseConceptInput(input)));
@@ -174,6 +221,15 @@ export function registerLinksIpc(): void {
   handle(ipc.proposalsReject, (ids: unknown) => getLinksStore().rejectProposals(parseIds(ids)));
   handle(ipc.proposalsMerge, (ids: unknown, name: unknown) =>
     getLinksStore().mergeProposals(parseIds(ids), requireString(name, "concept name"))
+  );
+  handle(ipc.proposalsRestorePruned, async (docPath: unknown) => {
+    const index = await vectorStore.findByDocPath(requireString(docPath, "path"));
+    return index ? getLinksStore().restorePruned(index.contentHash) : 0;
+  });
+  handle(ipc.assist, (request: unknown) => runAssist(assistDeps, parseAssistRequest(request)));
+  handle(ipc.assistCancel, (requestId: unknown) => cancelAssist(requireString(requestId, "request id")));
+  handle(ipc.applyPlan, (planId: unknown, indexes: unknown) =>
+    applyPlan(getLinksStore(), requireString(planId, "plan id"), parseIndexes(indexes))
   );
   handle(ipc.extract, (docPath: unknown) => startExtraction(getLinksStore(), requireString(docPath, "path")));
   handle(ipc.extractCancel, (docPath: unknown) => cancelExtraction(requireString(docPath, "path")));

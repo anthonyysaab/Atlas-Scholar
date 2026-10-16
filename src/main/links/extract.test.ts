@@ -89,7 +89,7 @@ describe("extraction runner", () => {
   const baseSettings = {
     activeProviderId: "ollama",
     activeChatModel: "llama3.2:3b",
-    graph: { extractOnIndex: false, extractThinking: false, maxConceptsPerDoc: 40 }
+    graph: { extractOnIndex: false, extractThinking: false, mapBeforeExtract: false, maxConceptsPerDoc: 40 }
   } as Settings;
   let settings = baseSettings;
   let requests: Omit<ChatRequest, "streamId">[] = [];
@@ -131,6 +131,34 @@ describe("extraction runner", () => {
 
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it("reads passages in their place in the argument map, then keeps the most central concepts", async () => {
+    settings = { ...baseSettings, graph: { ...baseSettings.graph, mapBeforeExtract: true, maxConceptsPerDoc: 4 } };
+    const concepts = (window: number): string =>
+      JSON.stringify({ concepts: Array.from({ length: 5 }, (_, at) => ({ name: `notion ${window * 5 + at} alpha` })) });
+    const withMap: ExtractDeps = {
+      ...deps((call) => (call < 4 ? concepts(call) : '{"keep":[2, 1, 4, 3]}')),
+      docMap: async () => ({
+        docPath,
+        contentHash: index.contentHash,
+        embedModel: "e",
+        model: "m",
+        promptVersion: 1,
+        createdAt: "2026-10-16T09:00:00Z",
+        thesis: "Infinite cardinals behave well.",
+        nodes: [{ id: "s0", title: "Defining cardinals", role: "method", summary: "", themeIds: [], passages: index.chunks.map((chunk) => ({ chunkId: chunk.id, title: "" })), children: [] }],
+        source: "model"
+      })
+    };
+    await startExtraction(store, docPath, {}, withMap);
+    await settleExtraction(docPath);
+    expect(requests[0]?.messages[1]?.content).toMatch(/^Document thesis: Infinite cardinals behave well\.\nThis passage is in "Defining cardinals" \(method\)/);
+    expect(requests).toHaveLength(5);
+    expect(requests[4]?.messages[0]?.content).toMatch(/Keep at most 4/);
+    expect(await store.listProposals(docPath)).toHaveLength(4);
+    expect(progress.map((entry) => entry.phase)).toEqual(expect.arrayContaining(["mapping", "extracting", "ranking"]));
+    expect(progress.at(-1)).toMatchObject({ state: "done", proposals: 4, pruned: 8 });
   });
 
   it("does nothing from the index hook unless enabled", async () => {
@@ -196,10 +224,10 @@ describe("extraction runner", () => {
   it("sends the thinking setting and asks again when it changes", async () => {
     const reply = () => '{"concepts":[]}';
     expect(await run(reply)).toBe(4);
-    expect(requests.every((req) => req.thinking === false)).toBe(true);
+    expect(requests.every((req) => req.thinking === "off")).toBe(true);
     settings = { ...baseSettings, graph: { ...baseSettings.graph, extractThinking: true } };
     expect(await run(reply)).toBe(4);
-    expect(requests.at(-1)?.thinking).toBe(true);
+    expect(requests.at(-1)?.thinking).toBe("auto");
   });
 
   it("stops with an error when the provider keeps failing", async () => {

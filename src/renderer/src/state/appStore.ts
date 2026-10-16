@@ -12,8 +12,14 @@ export interface FileEvent {
 /** What the "Link to…" picker links: a passage to a concept, or to a passage in another document. */
 export interface LinkPickerRequest {
   passage: PassageDraft;
+  /** More passages linked to the same concept, e.g. the rest of an annotation group. */
+  extraPassages?: PassageDraft[];
+  /** Offered first as a new concept when nothing is typed (a group's title). */
+  suggestedName?: string;
   source?: LinkSource;
   origin?: { threadId?: string; messageId?: string };
+  /** Called with the concept the passages were linked to. */
+  onLinked?: (conceptId: string) => void;
 }
 
 export interface GraphFocus {

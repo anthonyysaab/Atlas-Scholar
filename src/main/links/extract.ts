@@ -1,10 +1,10 @@
 import type { ChatMessage, ProposalPassage } from "@shared/types";
-import { cleanConceptName, foldConceptKey, foldText } from "@shared/links/normalize";
+import { cleanConceptName, conceptStemKey, foldConceptKey, foldText } from "@shared/links/normalize";
 import { extractJsonReply } from "@main/llm/jsonReply";
 import { asArray, asRecord, asString } from "@main/providers/json";
 import type { ProposalDraft } from "./store";
 
-export const MAX_CONCEPTS_PER_WINDOW = 8;
+export const MAX_CONCEPTS_PER_WINDOW = 5;
 const MAX_NAME_WORDS = 6;
 const MAX_NAME_CHARS = 80;
 const MAX_QUOTE_CHARS = 300;
@@ -23,17 +23,28 @@ export interface ExtractedConcept {
   quote?: string;
 }
 
+/** Where the passage sits in the document's argument map, when one was built. */
+export interface ExtractContext {
+  thesis: string;
+  place?: { title: string; role: string; summary: string };
+}
+
 const RULES = [
-  "You index a document the user is studying. From the passage, list the key concepts it defines, states or uses in an essential way: named notions, theorems, structures, methods.",
-  "Give each concept a short canonical name (1 to 6 words), lowercase except proper names, singular, in the language of the passage, e.g. \"cardinal infini\", \"théorème de compacité\", \"ultrafiltre\".",
-  "Skip generic words (exercice, définition, exemple, preuve, chapitre), people's names on their own, and anything only mentioned in passing.",
-  `List at most ${MAX_CONCEPTS_PER_WINDOW} concepts; fewer is fine, and an empty list is fine when the passage has none.`,
+  "You index a document the user is studying. From the passage, list the key concepts it defines, states or uses in an essential way: named notions, theorems, methods, models, datasets.",
+  "Name each concept as the passage names it: 1 to 6 words, singular, lowercase except proper names, in the passage's own language. Prefer the most specific term the text uses.",
+  "Skip generic words (definition, example, proof, method, model, result, analysis, section, figure), people's names on their own, and phrases that only pair a common word with a modifier (such as \"causal effect\") unless the passage defines them.",
+  "aliases: only abbreviations or other names for the same concept that are written in this passage. Never translations. Usually an empty list.",
+  `List at most ${MAX_CONCEPTS_PER_WINDOW} concepts, the most central first; fewer is fine, and an empty list is fine when the passage has none.`,
   "For each concept copy a short quote (one sentence or less) from the passage where it appears, exactly as written.",
-  'Reply with ONLY a JSON object, no prose and no code fence: {"concepts": [{"name": "...", "aliases": ["..."], "quote": "..."}]}.',
+  'Reply with ONLY a JSON object, no prose and no code fence: {"concepts": [{"name": "...", "aliases": [], "quote": "..."}]}.',
   String.raw`Inside the JSON strings, double every backslash, e.g. "$\\kappa$".`
 ];
 
-export function buildExtractMessages(window: ExtractWindow, knownNames: readonly string[]): ChatMessage[] {
+export function buildExtractMessages(
+  window: ExtractWindow,
+  knownNames: readonly string[],
+  context?: ExtractContext
+): ChatMessage[] {
   const known =
     knownNames.length > 0
       ? `\n\nConcepts already in the user's notes (reuse these exact names when the passage is about them): ${knownNames
@@ -41,9 +52,18 @@ export function buildExtractMessages(window: ExtractWindow, knownNames: readonly
           .join("; ")}`
       : "";
   const where = window.page !== undefined ? ` (p.${window.page})` : "";
+  // The argument map tells a small model what the passage is for, so it can tell central from incidental.
+  const header = [
+    context?.thesis ? `Document thesis: ${context.thesis}` : "",
+    context?.place
+      ? `This passage is in "${context.place.title}" (${context.place.role})${context.place.summary ? `: ${context.place.summary}` : ""}`
+      : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
   return [
     { role: "system", content: RULES.join("\n") + known },
-    { role: "user", content: `Passage${where}:\n"""\n${window.text.trim()}\n"""` }
+    { role: "user", content: `${header ? `${header}\n\n` : ""}Passage${where}:\n"""\n${window.text.trim()}\n"""` }
   ];
 }
 
@@ -85,7 +105,9 @@ const GENERIC = new Set(
     "exercice", "exercices", "exemple", "exemples", "definition", "definitions", "theoreme", "lemme", "proposition",
     "corollaire", "preuve", "demonstration", "remarque", "chapitre", "section", "introduction", "conclusion",
     "notation", "notations", "question", "questions", "reponse", "solution", "cours", "partiel", "examen",
-    "exercise", "example", "definition", "theorem", "lemma", "proof", "remark", "chapter", "introduction", "notation"
+    "exercise", "example", "definition", "theorem", "lemma", "proof", "remark", "chapter", "introduction", "notation",
+    "method", "methods", "approach", "model", "models", "result", "results", "analysis", "figure", "table", "paper",
+    "work", "study", "experiment", "experiments", "data", "system", "problem", "task", "case", "case study"
   ].map((word) => foldText(word))
 );
 
@@ -148,6 +170,23 @@ export function verifyQuote(quote: string | undefined, text: string, name: strin
   return fallback.replace(/\s+/g, " ").trim().slice(0, MAX_QUOTE_CHARS);
 }
 
+/**
+ * Small models fill `aliases` with translations and paraphrases ("représentations neurales" for
+ * "neural representations"); keep only aliases the passage itself uses, and never the name's plural.
+ */
+export function verifiedAliases(aliases: readonly string[], text: string, name: string): string[] {
+  const haystack = foldedIndex(text).folded;
+  const own = conceptStemKey(name);
+  return aliases.filter((alias) => {
+    // Abbreviations such as "IG" or "NR" are fine as aliases though too short to name a concept.
+    const key = foldConceptKey(alias);
+    const usable = key.length >= 2 && /\p{L}/u.test(key) && !GENERIC.has(key) && key.split(" ").length <= MAX_NAME_WORDS;
+    if (!usable || conceptStemKey(alias) === own) return false;
+    const needle = foldedIndex(alias).folded;
+    return needle.length > 0 && haystack.includes(needle);
+  });
+}
+
 /** Turn one window's parsed reply into review-queue drafts, each pointing at this chunk. */
 export function draftsFromWindow(window: ExtractWindow, concepts: readonly ExtractedConcept[]): ProposalDraft[] {
   const seen = new Set<string>();
@@ -162,7 +201,7 @@ export function draftsFromWindow(window: ExtractWindow, concepts: readonly Extra
       quote: verifyQuote(concept.quote, window.text, name),
       ...(window.page !== undefined ? { page: window.page } : {})
     };
-    drafts.push({ name, aliases: concept.aliases.filter(isUsableName), passages: [passage] });
+    drafts.push({ name, aliases: verifiedAliases(concept.aliases, window.text, name), passages: [passage] });
     if (drafts.length >= MAX_CONCEPTS_PER_WINDOW) break;
   }
   return drafts;

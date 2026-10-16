@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { join } from "node:path";
 import { attachBrowser, disposeBrowser } from "@main/browser/service";
 import { bindEventTarget } from "@main/events";
@@ -38,6 +38,26 @@ export function createMainWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // `removeMenu` also drops the Edit menu, so text fields and PDF selections get their own native menu.
+  // Its Copy fires the page's copy event, where the PDF viewer cleans the text layer's line breaks.
+  window.webContents.on("context-menu", (_event, params) => {
+    const items: MenuItemConstructorOptions[] = params.isEditable
+      ? [
+          { role: "undo", enabled: params.editFlags.canUndo },
+          { role: "redo", enabled: params.editFlags.canRedo },
+          { type: "separator" },
+          { role: "cut", enabled: params.editFlags.canCut },
+          { role: "copy", enabled: params.editFlags.canCopy },
+          { role: "paste", enabled: params.editFlags.canPaste },
+          { type: "separator" },
+          { role: "selectAll" }
+        ]
+      : params.selectionText.trim()
+        ? [{ role: "copy" }]
+        : [];
+    if (items.length > 0) Menu.buildFromTemplate(items).popup({ window });
   });
 
   // Dropping a file onto the window must never navigate the app to that file URL.

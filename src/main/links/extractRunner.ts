@@ -1,13 +1,24 @@
 import { resolve } from "node:path";
-import type { ChatRequest, ExtractProgress, Settings } from "@shared/types";
+import type { ArgRole, ChatRequest, DocMap, ExtractProgress, Settings } from "@shared/types";
+import { placeOfChunk } from "@main/rag/docMap";
 import type { VectorIndex } from "@main/rag/types";
-import { buildExtractMessages, draftsFromWindow, parseExtractReply, type ExtractedConcept, type ExtractWindow } from "./extract";
+import {
+  buildExtractMessages,
+  draftsFromWindow,
+  parseExtractReply,
+  type ExtractContext,
+  type ExtractedConcept,
+  type ExtractWindow
+} from "./extract";
 import { ExtractCache } from "./extractCache";
+import { buildRankMessages, chooseKept, MIN_TO_RANK, parseRankReply, scoreProposals, shownForRanking } from "./rank";
 import type { ExtractionRecord, LinksStore } from "./store";
 
 const WINDOW_TIMEOUT_MS = 120_000;
 // Several failures in a row that are not bad JSON mean the provider is down or the model missing.
 const MAX_CONSECUTIVE_FAILURES = 3;
+// While reading, keep more candidates than the cap; the ranking at the end keeps the central ones.
+const CANDIDATE_FACTOR = 3;
 
 export interface ExtractDeps {
   settings: () => Promise<Settings>;
@@ -16,6 +27,8 @@ export interface ExtractDeps {
   findIndex: (docPath: string) => Promise<VectorIndex | null>;
   /** Where each document's saved replies live (the open library's concept cache). */
   cacheDir: () => string;
+  /** The document's argument map, built first when there is none; absent in tests that don't need it. */
+  docMap?: (index: VectorIndex) => Promise<DocMap | null>;
   now: () => Date;
 }
 
@@ -106,7 +119,7 @@ export async function startExtraction(
   const keep = sameModel && (record?.state !== "done" || (record?.failed ?? 0) > 0);
   const resume = keep ? new Set(record?.doneOrdinals ?? []) : new Set<number>();
   const thinking = settings.graph.extractThinking;
-  const cache = await ExtractCache.open(deps.cacheDir(), index.contentHash, { providerId, model, thinking });
+  const cap = settings.graph.maxConceptsPerDoc;
   const windows = index.chunks
     .filter((chunk) => chunk.text.trim().length > 0)
     .map((chunk): ExtractWindow & { ordinal: number } => ({
@@ -147,7 +160,27 @@ export async function startExtraction(
 
   const run = async (): Promise<void> => {
     await saveRecord("running");
+    let map: DocMap | null = null;
+    if (settings.graph.mapBeforeExtract && deps.docMap) {
+      progress.phase = "mapping";
+      deps.emit({ ...progress });
+      // Extraction works without a map; a failed map only costs the passages their context.
+      map = await deps.docMap(index).catch(() => null);
+    }
+    progress.phase = "extracting";
     deps.emit({ ...progress });
+    const places = map ? placeOfChunk(map) : null;
+    const contextFor = (chunkId: string): ExtractContext | undefined => {
+      if (!map) return undefined;
+      const place = places?.get(chunkId);
+      return { thesis: map.thesis, ...(place ? { place } : {}) };
+    };
+    const cache = await ExtractCache.open(deps.cacheDir(), index.contentHash, {
+      providerId,
+      model,
+      thinking,
+      ...(map ? { map: map.createdAt } : {})
+    });
     let failures = 0;
     let lastError = "";
     for (const window of windows) {
@@ -160,7 +193,13 @@ export async function startExtraction(
         } else {
           const known = (await store.graph()).concepts.map((concept) => concept.name);
           const reply = await deps.complete(
-            { providerId, model, messages: buildExtractMessages(window, known), temperature: 0.1, thinking },
+            {
+              providerId,
+              model,
+              messages: buildExtractMessages(window, known, contextFor(window.chunkId)),
+              temperature: 0.1,
+              thinking: thinking ? "auto" : "off"
+            },
             AbortSignal.any([controller.signal, AbortSignal.timeout(WINDOW_TIMEOUT_MS)])
           );
           concepts = parseExtractReply(reply);
@@ -174,7 +213,7 @@ export async function startExtraction(
             index.contentHash,
             model,
             drafts,
-            settings.graph.maxConceptsPerDoc
+            cap * CANDIDATE_FACTOR
           );
         }
         // Only passages with a usable reply are checkpointed; failed ones are retried next run.
@@ -198,6 +237,17 @@ export async function startExtraction(
       await saveRecord("running");
       deps.emit({ ...progress });
     }
+    if (progress.state === "running" && !controller.signal.aborted) {
+      progress.phase = "ranking";
+      deps.emit({ ...progress });
+      await rankDocument(store, index, deps, { providerId, model, thinking, cap, map, signal: controller.signal })
+        .then((kept) => {
+          if (kept !== null) progress.proposals = kept;
+        })
+        .catch(() => undefined);
+      const pruned = await store.prunedCount(index.contentHash);
+      if (pruned > 0) progress.pruned = pruned;
+    }
     if (progress.state === "running") progress.state = controller.signal.aborted ? "cancelled" : "done";
     progress.failed = failed;
     progress.cached = cached;
@@ -218,6 +268,55 @@ export async function startExtraction(
       if (running.get(keyFor(index.docPath)) === entry) running.delete(keyFor(index.docPath));
     });
   return { ...progress };
+}
+
+interface RankOptions {
+  providerId: string;
+  model: string;
+  thinking: boolean;
+  cap: number;
+  map: DocMap | null;
+  signal: AbortSignal;
+}
+
+/**
+ * Keep the document's most central proposals (at most `cap`) and hide the rest, restorably. The model
+ * picks from the best-scored candidates; when it fails or picks too few, the scores decide alone.
+ * Returns how many proposals are left, or null when the queue was short enough to leave as it is.
+ */
+async function rankDocument(store: LinksStore, index: VectorIndex, deps: ExtractDeps, options: RankOptions): Promise<number | null> {
+  const proposals = (await store.listProposals(index.docPath)).filter((proposal) => proposal.contentHash === index.contentHash);
+  // A short queue within the cap is left as it is; anything over the cap is always ranked.
+  if (proposals.length <= options.cap && proposals.length <= MIN_TO_RANK) return null;
+  const roles = new Map<string, ArgRole>();
+  if (options.map) for (const [chunkId, place] of placeOfChunk(options.map)) roles.set(chunkId, place.role);
+  const ranked = scoreProposals(proposals, index.chunks, (chunkId) => roles.get(chunkId));
+  const shown = shownForRanking(ranked, options.cap);
+  let picks: number[] | null = null;
+  try {
+    const opening = [...index.chunks].sort((a, b) => a.ordinal - b.ordinal)[0]?.text ?? "";
+    const reply = await deps.complete(
+      {
+        providerId: options.providerId,
+        model: options.model,
+        messages: buildRankMessages(shown, options.cap, {
+          ...(options.map?.thesis ? { thesis: options.map.thesis } : {}),
+          ...(options.map ? { steps: options.map.nodes.map((node) => node.title) } : {}),
+          opening
+        }),
+        temperature: 0.1,
+        thinking: options.thinking ? "auto" : "off"
+      },
+      AbortSignal.any([options.signal, AbortSignal.timeout(WINDOW_TIMEOUT_MS)])
+    );
+    picks = parseRankReply(reply, shown.length);
+  } catch {
+    if (options.signal.aborted) return null;
+    picks = null;
+  }
+  const keep = chooseKept(ranked, shown, picks, options.cap);
+  await store.pruneProposals(index.contentHash, keep);
+  return keep.length;
 }
 
 export function cancelExtraction(docPath: string): void {
@@ -248,6 +347,7 @@ export async function extractionStatus(
     total: record.total,
     state: record.state,
     proposals: (await store.listProposals(index.docPath)).length,
+    ...((await store.prunedCount(index.contentHash)) > 0 ? { pruned: await store.prunedCount(index.contentHash) } : {}),
     ...(record.failed ? { failed: record.failed } : {}),
     ...(record.error ? { error: record.error } : {})
   };
