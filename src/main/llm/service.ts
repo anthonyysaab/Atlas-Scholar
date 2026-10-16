@@ -27,6 +27,7 @@ async function runChat(
       messages: req.messages,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
+      ...(req.thinking !== undefined ? { thinking: req.thinking } : {}),
       signal
     })) {
       if (chunk.delta.length === 0) continue;
@@ -74,6 +75,7 @@ export async function completeChat(req: Omit<ChatRequest, "streamId">, signal: A
     messages: req.messages,
     ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
+    ...(req.thinking !== undefined ? { thinking: req.thinking } : {}),
     signal
   })) {
     text += chunk.delta;

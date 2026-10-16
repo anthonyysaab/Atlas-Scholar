@@ -126,6 +126,30 @@ export interface RagApi {
   remove(docPath: string): Promise<void>;
   query(input: RagQueryInput): Promise<RagQueryResult>;
   search(input: LibrarySearchInput): Promise<LibrarySearchResult>;
+  /** Saved theme labels for the document's current index, or null when none were built. */
+  themes(docPath: string): Promise<DocThemes | null>;
+  /** Group the indexed passages by theme (outline sections, else named clusters) and save it. */
+  buildThemes(docPath: string): Promise<DocThemes>;
+}
+
+export interface DocTheme {
+  id: string;
+  name: string;
+  /** Index chunk ids labelled with this theme. */
+  chunkIds: string[];
+  /** Pages those chunks start on, ascending. */
+  pages: number[];
+}
+
+export interface DocThemes {
+  docPath: string;
+  contentHash: string;
+  embedModel: string;
+  /** `outline`: the PDF's sections, re-assigned by meaning; `clusters`: groups named by the chat model. */
+  source: "outline" | "clusters";
+  namingModel?: string;
+  createdAt: string;
+  themes: DocTheme[];
 }
 
 /** `library` retrieves from every indexed document, not just the open one. */
@@ -177,6 +201,8 @@ export interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  /** `false` asks a reasoning model to answer directly where the provider or model has a switch. */
+  thinking?: boolean;
   streamId: string;
 }
 
@@ -244,6 +270,8 @@ export interface GraphSettings {
   /** Provider/model used for extraction; absent means the active chat provider/model. */
   extractProviderId?: string;
   extractModel?: string;
+  /** Let a reasoning model think before listing concepts; off is faster and, on DeepSeek, cheaper. */
+  extractThinking: boolean;
   maxConceptsPerDoc: number;
   /** Show "Related in your other PDFs" under chat answers. */
   relatedSuggestions: boolean;
@@ -844,6 +872,10 @@ export interface ExtractProgress {
   total: number;
   state: "running" | "done" | "cancelled" | "error";
   proposals: number;
+  /** Passages whose reply could not be used; the next run retries only these. */
+  failed?: number;
+  /** Passages answered from the saved replies of an earlier run, without calling the model. */
+  cached?: number;
   error?: string;
 }
 

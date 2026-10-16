@@ -99,6 +99,12 @@ export function GraphSection() {
               ))}
             </datalist>
           </Row>
+          <Row
+            label="Let the model think"
+            hint="Off answers directly: faster, and cheaper on DeepSeek, which bills reasoning as output. Applies to DeepSeek and Qwen3 models."
+          >
+            <input type="checkbox" checked={graph.extractThinking} onChange={(event) => update({ extractThinking: event.target.checked })} />
+          </Row>
           <Row label="Max concepts per document">
             <NumberInput
               value={graph.maxConceptsPerDoc}

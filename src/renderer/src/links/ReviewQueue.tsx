@@ -160,6 +160,7 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
 
   const running = progress?.state === "running";
   const resumable = progress && (progress.state === "cancelled" || progress.state === "error") && progress.done < progress.total;
+  const retryable = progress?.state === "done" && (progress.failed ?? 0) > 0;
 
   return (
     <section className="flex flex-col gap-1.5">
@@ -187,6 +188,7 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
                 <span>
                   {running ? "Extracting concepts…" : progress.state === "done" ? "Extraction finished" : progress.state === "error" ? "Extraction stopped" : "Extraction paused"}{" "}
                   {progress.done}/{progress.total}
+                  {progress.cached ? ` · ${progress.cached} from saved replies` : ""}
                 </span>
                 {running ? (
                   <button type="button" onClick={() => void run(() => window.api.links.cancelExtract(docPath))} className="hover:text-text">
@@ -195,6 +197,10 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
                 ) : resumable ? (
                   <button type="button" onClick={() => void startConceptExtraction(docPath)} className="text-accent hover:underline">
                     Resume
+                  </button>
+                ) : retryable ? (
+                  <button type="button" onClick={() => void startConceptExtraction(docPath)} className="text-accent hover:underline">
+                    Retry {progress.failed} failed
                   </button>
                 ) : null}
               </div>

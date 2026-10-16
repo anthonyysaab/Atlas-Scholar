@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { IndexStatus } from "@shared/types";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
+import { ThemesSection } from "@renderer/context/ThemesSection";
 import { useExtractedDoc } from "@renderer/context/useExtractedDoc";
 import { useIndexStatus } from "@renderer/context/useIndexStatus";
 import { requestReindex, switchPanelTab } from "@renderer/lib/commands";
@@ -140,6 +141,8 @@ export function ContextTab() {
           ) : null}
         </div>
       </section>
+
+      <ThemesSection docPath={doc.ref.path} status={status} />
 
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-weak">Embedding model</h3>

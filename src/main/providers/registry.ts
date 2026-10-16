@@ -27,8 +27,8 @@ export const MODULES: Record<string, ProviderModule> = {
 };
 
 const DEEPSEEK_MODELS: ModelInfo[] = [
-  { id: "deepseek-chat", name: "DeepSeek Chat", supportsChat: true },
-  { id: "deepseek-reasoner", name: "DeepSeek Reasoner", supportsChat: true }
+  { id: "deepseek-flash", name: "DeepSeek Flash", supportsChat: true },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", supportsChat: true }
 ];
 
 export const PROVIDER_CONFIGS: ProviderConfig[] = [

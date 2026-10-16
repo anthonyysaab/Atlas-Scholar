@@ -3,7 +3,7 @@ import { IPC } from "@shared/channels";
 import type { ConceptTarget, LinkInput, LinkSource, PassageDraft, ProposalPatch } from "@shared/types";
 import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
-import { onLibrarySwitch } from "@main/library/context";
+import { onLibrarySwitch, requireLibrary } from "@main/library/context";
 import { getLinksStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import {
@@ -135,6 +135,7 @@ export function registerLinksIpc(): void {
     complete: completeChat,
     emit: (progress) => emitToRenderer(ipc.extractProgress, progress),
     findIndex: (docPath) => vectorStore.findByDocPath(docPath),
+    cacheDir: () => requireLibrary().location("concepts"),
     now: () => new Date()
   });
   setKnownConceptsProvider((docPaths) => getLinksStore().conceptNamesFor(docPaths));

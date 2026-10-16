@@ -4,8 +4,7 @@ import { basename, join } from "node:path";
 import type { UpdateInfo } from "@shared/types";
 import { asArray, asRecord, asString } from "@main/providers/json";
 
-const GITHUB_REPO =
-  "anthonyysaab/Reading-assistant---Annotate-papers-save-page-ask-questions-in-parallel";
+const GITHUB_REPO = "anthonyysaab/Atlas-Scholar";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
 const USER_AGENT = "Atlas-Scholar";

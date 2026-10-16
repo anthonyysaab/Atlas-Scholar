@@ -1,6 +1,7 @@
 import type { ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, readBodyLines, requireBody } from "./http";
 import { asArray, asNumber, asRecord, asString, parseJson } from "./json";
+import { withThinkingOff } from "./thinking";
 import type { ProviderModule } from "./types";
 
 function optionsFrom(temperature?: number, maxTokens?: number): Record<string, unknown> {
@@ -16,13 +17,13 @@ export const ollama: ProviderModule = {
   kind: "local",
   defaultBaseUrl: "http://127.0.0.1:11434",
 
-  async *chat({ baseUrl, model, messages, temperature, maxTokens, signal }) {
+  async *chat({ baseUrl, model, messages, temperature, maxTokens, thinking, signal }) {
     const response = await fetch(joinUrl(baseUrl, "/api/chat"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        messages,
+        messages: thinking === false ? withThinkingOff(model, messages) : messages,
         stream: true,
         options: optionsFrom(temperature, maxTokens)
       }),

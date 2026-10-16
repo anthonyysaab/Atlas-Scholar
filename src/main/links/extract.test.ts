@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtractProgress, Settings } from "@shared/types";
+import type { ChatRequest, ExtractProgress, Settings } from "@shared/types";
 import type { VectorIndex } from "@main/rag/types";
 import { draftsFromWindow, isUsableName, parseExtractReply, verifyQuote } from "./extract";
 import { extractionStatus, settleExtraction, startExtraction, type ExtractDeps } from "./extractRunner";
@@ -86,15 +86,22 @@ describe("extraction runner", () => {
     }))
   };
 
-  const settings = { activeProviderId: "ollama", activeChatModel: "llama3.2:3b", graph: { extractOnIndex: false, maxConceptsPerDoc: 40 } } as Settings;
+  const baseSettings = {
+    activeProviderId: "ollama",
+    activeChatModel: "llama3.2:3b",
+    graph: { extractOnIndex: false, extractThinking: false, maxConceptsPerDoc: 40 }
+  } as Settings;
+  let settings = baseSettings;
+  let requests: Omit<ChatRequest, "streamId">[] = [];
 
   function deps(replies: (call: number) => string | Error, onCall?: (call: number) => void): ExtractDeps {
     let call = 0;
     return {
       settings: async () => settings,
-      complete: async () => {
+      complete: async (req) => {
         const current = call;
         call += 1;
+        requests.push(req);
         onCall?.(current);
         const reply = replies(current);
         if (reply instanceof Error) throw reply;
@@ -102,14 +109,24 @@ describe("extraction runner", () => {
       },
       emit: (entry) => progress.push(entry),
       findIndex: async () => index,
+      cacheDir: () => join(dir, "cache"),
       now: () => new Date("2026-10-15T10:00:00Z")
     };
+  }
+
+  async function run(replies: (call: number) => string | Error): Promise<number> {
+    let calls = 0;
+    await startExtraction(store, docPath, {}, deps(replies, () => (calls += 1)));
+    await settleExtraction(docPath);
+    return calls;
   }
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "ra-extract-"));
     store = new LinksStore(join(dir, "links.json"));
     progress = [];
+    requests = [];
+    settings = baseSettings;
   });
 
   afterEach(async () => {
@@ -154,6 +171,35 @@ describe("extraction runner", () => {
     await settleExtraction(docPath);
     expect(resumedCalls).toBe(4 - doneBefore);
     expect((await extractionStatus(store, docPath, deps(reply)))?.state).toBe("done");
+  });
+
+  it("re-runs a finished document from saved replies without calling the model", async () => {
+    const reply = () => '{"concepts":[{"name":"cardinal infini"}]}';
+    expect(await run(reply)).toBe(4);
+    expect(await run(reply)).toBe(0);
+    expect(progress.at(-1)).toMatchObject({ state: "done", done: 4, cached: 4, failed: 0 });
+    expect((await store.listProposals(docPath)).map((entry) => entry.name)).toEqual(["cardinal infini"]);
+  });
+
+  it("reports failed passages and retries only those", async () => {
+    const good = '{"concepts":[{"name":"cardinal infini"}]}';
+    expect(await run((call) => (call === 2 ? "not json" : good))).toBe(4);
+    expect(progress.at(-1)).toMatchObject({ state: "done", done: 4, failed: 1 });
+    expect(progress.at(-1)?.error).toMatch(/1 of 4 passages/);
+    expect(await extractionStatus(store, docPath, deps(() => good))).toMatchObject({ state: "done", failed: 1, done: 4 });
+
+    expect(await run(() => good)).toBe(1);
+    expect(progress.at(-1)).toMatchObject({ state: "done", done: 4, failed: 0 });
+    expect(progress.at(-1)?.error).toBeUndefined();
+  });
+
+  it("sends the thinking setting and asks again when it changes", async () => {
+    const reply = () => '{"concepts":[]}';
+    expect(await run(reply)).toBe(4);
+    expect(requests.every((req) => req.thinking === false)).toBe(true);
+    settings = { ...baseSettings, graph: { ...baseSettings.graph, extractThinking: true } };
+    expect(await run(reply)).toBe(4);
+    expect(requests.at(-1)?.thinking).toBe(true);
   });
 
   it("stops with an error when the provider keeps failing", async () => {

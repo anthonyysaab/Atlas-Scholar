@@ -26,6 +26,8 @@ export const IPC = {
     remove: "rag:remove",
     query: "rag:query",
     search: "rag:search",
+    themes: "rag:themes",
+    buildThemes: "rag:buildThemes",
     progress: "rag:progress"
   },
   llm: {

@@ -12,6 +12,8 @@ export type DataLocation =
   | "externalAnnotations"
   | "index"
   | "extract"
+  | "concepts"
+  | "themes"
   | "catalog"
   | "manifest"
   | "journal"
@@ -27,6 +29,8 @@ const LIBRARY_LAYOUT: Record<DataLocation, string> = {
   externalAnnotations: "annotations/external",
   index: "index",
   extract: "cache/extract",
+  concepts: "cache/concepts",
+  themes: "cache/themes",
   catalog: "catalog.json",
   manifest: "library.json",
   journal: "moves.journal.json",

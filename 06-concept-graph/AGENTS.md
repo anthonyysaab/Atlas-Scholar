@@ -97,6 +97,17 @@ All checklist items ticked, the commands above green, and the manual flow works 
 - Note (07): the links store now lives in the open library (`.assistant/links.json`, `lib:` paths) and
   follows moves and imports; passages without rects open the PDF find bar on their opening words
   and land on the text (D20), which closes the "page only" gap below.
+- Note (extraction checkpoint): parsed replies are saved per chunk in `.assistant/cache/concepts/`
+  (`src/main/links/extractCache.ts`), so re-runs, resumes and re-indexing reuse them for free; failed
+  chunks stay out of `doneOrdinals`, are reported as `failed` and retried alone ("Retry N failed").
+  `graph.extractThinking` (default off) sends `thinking: false` (DeepSeek `thinking: disabled`,
+  Qwen3 `/no_think`, see `src/main/providers/thinking.ts`). DeepSeek presets are `deepseek-flash`
+  and `deepseek-v4-pro`. Interfaces: §1.5 `ChatRequest.thinking`, §1.7 `GraphSettings.extractThinking`,
+  §1.12 `ExtractProgress.failed/cached`, §2 `chat.thinking`.
+- Note (themes): Context tab "Themes" labels every indexed passage (`src/main/rag/themes.ts`, saved in
+  `.assistant/cache/themes/`): outline sections re-assigned by meaning, or k-means groups named by the
+  extraction model. Pages open the passage. Interfaces: §1.4 `RagApi.themes/buildThemes`, `DocThemes`.
+  Not yet: theme filter for chat, graph colouring by theme.
 - Known gaps: no "Locate…" UI for missing files; passages without rects open at the page only;
   related suggestions need other documents indexed with the same embedding model; threads keyed
   by per-tab `docId` (pre-existing).

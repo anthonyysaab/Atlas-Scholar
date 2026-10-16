@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chat: { scope: "document" },
   graph: {
     extractOnIndex: false,
+    extractThinking: false,
     maxConceptsPerDoc: 40,
     relatedSuggestions: true,
     relatedMinScore: 0.6,
@@ -90,6 +91,7 @@ function normalizeGraph(value: unknown): GraphSettings {
     extractOnIndex: bool(raw.extractOnIndex, base.extractOnIndex),
     ...(typeof raw.extractProviderId === "string" && raw.extractProviderId ? { extractProviderId: raw.extractProviderId } : {}),
     ...(typeof raw.extractModel === "string" && raw.extractModel ? { extractModel: raw.extractModel } : {}),
+    extractThinking: bool(raw.extractThinking, base.extractThinking),
     maxConceptsPerDoc: Math.round(num(raw.maxConceptsPerDoc, base.maxConceptsPerDoc, 1, 500)),
     relatedSuggestions: bool(raw.relatedSuggestions, base.relatedSuggestions),
     relatedMinScore: num(raw.relatedMinScore, base.relatedMinScore, 0, 1),

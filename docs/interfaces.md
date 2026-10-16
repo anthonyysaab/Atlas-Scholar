@@ -182,7 +182,19 @@ interface RagApi {
   remove(docPath: string): Promise<void>
   query(input: RagQueryInput): Promise<RagQueryResult>
   search(input: LibrarySearchInput): Promise<LibrarySearchResult>   // 06: semantic search across indexed documents
+  themes(docPath: string): Promise<DocThemes | null>   // saved theme labels for the current index (rag:themes)
+  buildThemes(docPath: string): Promise<DocThemes>     // build and save them (rag:buildThemes)
 }
+
+// Theme labels, saved per contentHash in .assistant/cache/themes/ and valid while the index's
+// embedModel and chunk ids match. With a usable outline (3–40 section titles with 2+ passages each)
+// a theme is a section: its vector is the mean of its passages, and each passage moves to another
+// theme only when that one is clearly closer (margin 0.05); no model calls. Without one, passages
+// are grouped by k-means (k = clamp(round(sqrt(n/2)), 2, 12)) and the extraction model names each
+// group from its 3 most central passages (one call per group).
+interface DocTheme { id: string; name: string; chunkIds: string[]; pages: number[] }
+interface DocThemes { docPath: string; contentHash: string; embedModel: string;
+  source: "outline" | "clusters"; namingModel?: string; createdAt: string; themes: DocTheme[] }
 
 // 06: across every index built with the active embedding model (newest index per document).
 interface LibrarySearchInput {
@@ -243,6 +255,7 @@ interface ChatRequest {
   messages: ChatMessage[]
   temperature?: number
   maxTokens?: number
+  thinking?: boolean            // false: ask a reasoning model to answer directly (DeepSeek `thinking`, Qwen3 `/no_think`)
   streamId: string              // caller-generated; correlates events
 }
 
@@ -326,6 +339,7 @@ interface GraphSettings {
   extractOnIndex: boolean        // default false; extraction proposals always wait for review
   extractProviderId?: string     // default: activeProviderId
   extractModel?: string          // default: activeChatModel
+  extractThinking: boolean       // default false: extraction requests carry thinking: false
   maxConceptsPerDoc: number      // default 40
   relatedSuggestions: boolean    // default true: "Related in your other PDFs" under answers
   relatedMinScore: number        // default 0.6 (cosine)
@@ -561,7 +575,10 @@ interface ConceptProposal { id: string; docPath: string; contentHash: string; na
   passages: ProposalPassage[]; matchConceptId?: string; suggestedConceptId?: string; model: string; createdAt: string }
 interface ProposalPatch { name?: string; aliases?: string[]; passages?: ProposalPassage[]; matchConceptId?: string | null }
 interface ExtractProgress { docPath: string; contentHash: string; done: number; total: number;
-  state: "running" | "done" | "cancelled" | "error"; proposals: number; error?: string }
+  state: "running" | "done" | "cancelled" | "error"; proposals: number;
+  failed?: number;   // passages with no usable reply; `done` counts them, the next run retries only them
+  cached?: number;   // passages answered from saved replies, without a model call
+  error?: string }
 
 interface LinksApi {
   graph(): Promise<LinksGraph>
@@ -662,6 +679,14 @@ chunk per request, parses tolerant JSON, verifies each quote against the chunk, 
 names and names rejected before, and writes proposals after every chunk. Progress is resumable
 per `contentHash`.
 
+Every parsed reply is saved as soon as it arrives in `.assistant/cache/concepts/<hash of contentHash>.json`,
+keyed by provider, model, thinking setting and prompt version, then by a hash of the chunk text. A
+run reads a saved reply before calling the model, so re-running a finished document, resuming, or
+re-indexing with the same chunking costs nothing; changing the model, provider or thinking setting
+(or bumping `EXTRACT_PROMPT_VERSION`) asks again. Only chunks with a usable reply join
+`doneOrdinals`; failed ones are counted in `failed`, and a finished run with failures keeps its
+checkpoint so the next run (Retry) asks only about those.
+
 ---
 
 ## 2. Provider module interface (main process)
@@ -683,6 +708,7 @@ export interface ProviderModule {
     messages: ChatMessage[]
     temperature?: number
     maxTokens?: number
+    thinking?: boolean                  // false: answer directly where the provider/model has a switch
     signal: AbortSignal
   }): AsyncIterable<{ delta: string }>   // streamed text deltas
   embed(args: {

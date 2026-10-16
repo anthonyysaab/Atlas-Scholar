@@ -70,6 +70,49 @@ describe("openai-compatible provider", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  async function sentBody(baseUrl: string, model: string, thinking?: boolean): Promise<Record<string, unknown>> {
+    let captured: RequestInit | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        captured = init;
+        return streamResponse(["data: [DONE]\n\n"]);
+      })
+    );
+    for await (const _chunk of openaiCompatible.chat({
+      baseUrl,
+      model,
+      messages: [
+        { role: "system", content: "rules" },
+        { role: "user", content: "passage" }
+      ],
+      ...(thinking !== undefined ? { thinking } : {}),
+      signal: abortSignal()
+    })) {
+      // drain
+    }
+    return JSON.parse(String(captured?.body)) as Record<string, unknown>;
+  }
+
+  it("turns DeepSeek's thinking off only when asked, and only for DeepSeek", async () => {
+    expect((await sentBody("https://api.deepseek.com", "deepseek-flash", false))["thinking"]).toEqual({ type: "disabled" });
+    expect((await sentBody("https://api.deepseek.com", "deepseek-flash"))["thinking"]).toBeUndefined();
+    expect((await sentBody("https://api.openai.com/v1", "gpt-x", false))["thinking"]).toBeUndefined();
+  });
+
+  it("adds Qwen3's /no_think switch to the last user turn", async () => {
+    const qwen = await sentBody("http://127.0.0.1:1235/v1", "qwen3-8b", false);
+    expect(qwen["messages"]).toEqual([
+      { role: "system", content: "rules" },
+      { role: "user", content: "passage\n/no_think" }
+    ]);
+    const other = await sentBody("http://127.0.0.1:1235/v1", "llama-3.1-8b", false);
+    expect(other["messages"]).toEqual([
+      { role: "system", content: "rules" },
+      { role: "user", content: "passage" }
+    ]);
+  });
+
   it("parses embeddings into vectors", async () => {
     vi.stubGlobal(
       "fetch",
@@ -181,8 +224,8 @@ describe("provider registry", () => {
     expect(deepseek?.moduleId).toBe("openai-compatible");
     expect(deepseek?.baseUrl).toBe("https://api.deepseek.com");
     expect(deepseek?.presetModels?.map((model) => model.id)).toEqual([
-      "deepseek-chat",
-      "deepseek-reasoner"
+      "deepseek-flash",
+      "deepseek-v4-pro"
     ]);
   });
 });

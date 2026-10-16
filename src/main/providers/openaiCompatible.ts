@@ -2,6 +2,7 @@ import type { ModelInfo } from "@shared/types";
 import { ensureOk, joinUrl, requireBody } from "./http";
 import { asArray, asNumber, asRecord, asString, parseJson } from "./json";
 import { parseSse } from "./sse";
+import { isDeepSeekEndpoint, withThinkingOff } from "./thinking";
 import type { ProviderModule } from "./types";
 
 function modelsFromPayload(payload: unknown): ModelInfo[] {
@@ -31,7 +32,8 @@ export const openaiCompatible: ProviderModule = {
   needsSecret: true,
   defaultBaseUrl: "https://api.openai.com/v1",
 
-  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, signal }) {
+  async *chat({ baseUrl, apiKey, model, messages, temperature, maxTokens, thinking, signal }) {
+    const thinkingOff = thinking === false;
     const response = await fetch(joinUrl(baseUrl, "/chat/completions"), {
       method: "POST",
       headers: {
@@ -40,10 +42,12 @@ export const openaiCompatible: ProviderModule = {
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: thinkingOff ? withThinkingOff(model, messages) : messages,
         stream: true,
         ...(temperature !== undefined ? { temperature } : {}),
-        ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {})
+        ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+        // Only DeepSeek gets the field: OpenAI and others reject unknown request parameters.
+        ...(thinkingOff && isDeepSeekEndpoint(baseUrl) ? { thinking: { type: "disabled" } } : {})
       }),
       signal
     });

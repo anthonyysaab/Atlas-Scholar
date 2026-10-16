@@ -1,8 +1,64 @@
-import type { IndexStatus, LibrarySearchInput, LibrarySearchResult, RagQueryInput, RagQueryResult } from "@shared/types";
+import { resolve } from "node:path";
+import type {
+  DocThemes,
+  IndexStatus,
+  LibrarySearchInput,
+  LibrarySearchResult,
+  RagQueryInput,
+  RagQueryResult
+} from "@shared/types";
 import { IPC } from "@shared/channels";
+import { getSettings } from "@main/config/settings";
+import { requireLibrary } from "@main/library/context";
+import { completeChat } from "@main/llm/service";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 import { getStatus, indexDocument, queryDocument, removeIndex, searchLibraryText } from "@main/rag/index";
+import { buildNamingMessages, computeThemes, ThemeStore } from "@main/rag/themes";
+import type { VectorIndex } from "@main/rag/types";
+import { vectorStore } from "@main/rag/vector-store";
 import { handle } from "./registry";
+
+const NAME_TIMEOUT_MS = 60_000;
+const building = new Map<string, Promise<DocThemes>>();
+
+function themeStore(): ThemeStore {
+  return new ThemeStore(requireLibrary().location("themes"));
+}
+
+/** The document's index, only if it was built with the current embedding model. */
+async function currentIndex(docPath: string): Promise<VectorIndex | null> {
+  const [index, settings] = await Promise.all([vectorStore.findByDocPath(resolve(docPath)), getSettings()]);
+  return index && index.embedModel === settings.activeEmbeddingModel ? index : null;
+}
+
+async function buildThemes(docPath: string): Promise<DocThemes> {
+  const index = await currentIndex(docPath);
+  if (!index) throw new Error("Index the document first: themes are built from its index.");
+  const settings = await getSettings();
+  const providerId = settings.graph.extractProviderId ?? settings.activeProviderId;
+  const model = settings.graph.extractModel ?? settings.activeChatModel;
+  const themes = await computeThemes(index, {
+    now: () => new Date(),
+    ...(model
+      ? {
+          namingModel: model,
+          nameGroup: (passages: string[]) =>
+            completeChat(
+              {
+                providerId,
+                model,
+                messages: buildNamingMessages(passages),
+                temperature: 0.2,
+                thinking: settings.graph.extractThinking
+              },
+              AbortSignal.timeout(NAME_TIMEOUT_MS)
+            )
+        }
+      : {})
+  });
+  await themeStore().save(themes);
+  return themes;
+}
 
 function parseIndexOptions(value: unknown): { force?: boolean; extractConcepts?: boolean } {
   const record = asRecord(value);
@@ -78,4 +134,18 @@ export function registerRagIpc(): void {
     (input: unknown): Promise<RagQueryResult> =>
       queryDocument(parseQuery(input))
   );
+
+  handle(IPC.rag.themes, async (docPath: unknown): Promise<DocThemes | null> => {
+    const index = await currentIndex(String(docPath));
+    return index ? themeStore().get(index) : null;
+  });
+
+  handle(IPC.rag.buildThemes, (docPath: unknown): Promise<DocThemes> => {
+    const key = resolve(String(docPath)).toLowerCase();
+    const existing = building.get(key);
+    if (existing) return existing;
+    const run = buildThemes(String(docPath)).finally(() => building.delete(key));
+    building.set(key, run);
+    return run;
+  });
 }

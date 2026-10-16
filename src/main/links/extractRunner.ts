@@ -1,7 +1,8 @@
 import { resolve } from "node:path";
 import type { ChatRequest, ExtractProgress, Settings } from "@shared/types";
 import type { VectorIndex } from "@main/rag/types";
-import { buildExtractMessages, draftsFromWindow, parseExtractReply, type ExtractWindow } from "./extract";
+import { buildExtractMessages, draftsFromWindow, parseExtractReply, type ExtractedConcept, type ExtractWindow } from "./extract";
+import { ExtractCache } from "./extractCache";
 import type { ExtractionRecord, LinksStore } from "./store";
 
 const WINDOW_TIMEOUT_MS = 120_000;
@@ -13,6 +14,8 @@ export interface ExtractDeps {
   complete: (req: Omit<ChatRequest, "streamId">, signal: AbortSignal) => Promise<string>;
   emit: (progress: ExtractProgress) => void;
   findIndex: (docPath: string) => Promise<VectorIndex | null>;
+  /** Where each document's saved replies live (the open library's concept cache). */
+  cacheDir: () => string;
   now: () => Date;
 }
 
@@ -98,7 +101,12 @@ export async function startExtraction(
       proposals: 0
     };
   }
-  const resume = sameModel && record?.state !== "done" ? new Set(record?.doneOrdinals ?? []) : new Set<number>();
+  // A finished run with failures keeps its checkpoint so a retry only asks about the failed passages;
+  // a clean finished run starts over, which the saved replies make free.
+  const keep = sameModel && (record?.state !== "done" || (record?.failed ?? 0) > 0);
+  const resume = keep ? new Set(record?.doneOrdinals ?? []) : new Set<number>();
+  const thinking = settings.graph.extractThinking;
+  const cache = await ExtractCache.open(deps.cacheDir(), index.contentHash, { providerId, model, thinking });
   const windows = index.chunks
     .filter((chunk) => chunk.text.trim().length > 0)
     .map((chunk): ExtractWindow & { ordinal: number } => ({
@@ -114,8 +122,12 @@ export async function startExtraction(
     done: windows.filter((window) => resume.has(window.ordinal)).length,
     total,
     state: "running",
-    proposals: 0
+    proposals: 0,
+    failed: 0,
+    cached: 0
   };
+  let failed = 0;
+  let cached = 0;
 
   const controller = new AbortController();
   const entry: Running = { controller, progress, done: Promise.resolve() };
@@ -128,6 +140,7 @@ export async function startExtraction(
       doneOrdinals: [...resume],
       total,
       state,
+      failed,
       ...(error ? { error } : {}),
       updatedAt: deps.now().toISOString()
     });
@@ -141,12 +154,20 @@ export async function startExtraction(
       if (controller.signal.aborted) break;
       if (resume.has(window.ordinal)) continue;
       try {
-        const known = (await store.graph()).concepts.map((concept) => concept.name);
-        const reply = await deps.complete(
-          { providerId, model, messages: buildExtractMessages(window, known), temperature: 0.1 },
-          AbortSignal.any([controller.signal, AbortSignal.timeout(WINDOW_TIMEOUT_MS)])
-        );
-        const drafts = draftsFromWindow(window, parseExtractReply(reply));
+        let concepts: ExtractedConcept[] | undefined = cache.get(window.text);
+        if (concepts) {
+          cached += 1;
+        } else {
+          const known = (await store.graph()).concepts.map((concept) => concept.name);
+          const reply = await deps.complete(
+            { providerId, model, messages: buildExtractMessages(window, known), temperature: 0.1, thinking },
+            AbortSignal.any([controller.signal, AbortSignal.timeout(WINDOW_TIMEOUT_MS)])
+          );
+          concepts = parseExtractReply(reply);
+          // A failed checkpoint write must not throw away a reply that was already paid for.
+          await cache.put(window.text, concepts).catch(() => undefined);
+        }
+        const drafts = draftsFromWindow(window, concepts);
         if (drafts.length > 0) {
           progress.proposals += await store.addProposals(
             index.docPath,
@@ -156,10 +177,13 @@ export async function startExtraction(
             settings.graph.maxConceptsPerDoc
           );
         }
+        // Only passages with a usable reply are checkpointed; failed ones are retried next run.
+        resume.add(window.ordinal);
         failures = 0;
       } catch (error) {
         if (controller.signal.aborted) break;
         lastError = error instanceof Error ? error.message : String(error);
+        failed += 1;
         // A reply that is not JSON only loses this window; anything else may be systemic.
         if (!/JSON|concepts/i.test(lastError)) failures += 1;
         if (failures >= MAX_CONSECUTIVE_FAILURES) {
@@ -168,12 +192,18 @@ export async function startExtraction(
           break;
         }
       }
-      resume.add(window.ordinal);
       progress.done += 1;
+      progress.failed = failed;
+      progress.cached = cached;
       await saveRecord("running");
       deps.emit({ ...progress });
     }
     if (progress.state === "running") progress.state = controller.signal.aborted ? "cancelled" : "done";
+    progress.failed = failed;
+    progress.cached = cached;
+    if (progress.state === "done" && failed > 0) {
+      progress.error = `${failed} of ${total} passages got no usable reply (${lastError}). Retry asks the model about those only.`;
+    }
     await saveRecord(progress.state, progress.error);
     deps.emit({ ...progress });
   };
@@ -214,10 +244,11 @@ export async function extractionStatus(
   return {
     docPath: index.docPath,
     contentHash: index.contentHash,
-    done: record.doneOrdinals.length,
+    done: Math.min(record.total, record.doneOrdinals.length + (record.failed ?? 0)),
     total: record.total,
     state: record.state,
     proposals: (await store.listProposals(index.docPath)).length,
+    ...(record.failed ? { failed: record.failed } : {}),
     ...(record.error ? { error: record.error } : {})
   };
 }

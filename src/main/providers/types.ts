@@ -7,6 +7,8 @@ export interface ChatArgs {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  /** `false` asks a reasoning model to answer directly, where the provider or model has a switch. */
+  thinking?: boolean;
   signal: AbortSignal;
 }
 

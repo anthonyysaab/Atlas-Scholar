@@ -28,6 +28,8 @@ export interface ExtractionRecord {
   doneOrdinals: number[];
   total: number;
   state: "running" | "done" | "cancelled" | "error";
+  /** Passages without a usable reply in the last run; not in `doneOrdinals`, so they are retried. */
+  failed?: number;
   error?: string;
   updatedAt: string;
 }
@@ -227,6 +229,7 @@ function parseExtraction(value: unknown): ExtractionRecord | null {
   const state = EXTRACTION_STATES.find((entry) => entry === record?.["state"]);
   if (!docPath || !state) return null;
   const error = asString(record?.["error"]);
+  const failed = asNumber(record?.["failed"]);
   return {
     docPath,
     model: asString(record?.["model"]) ?? "",
@@ -234,6 +237,7 @@ function parseExtraction(value: unknown): ExtractionRecord | null {
     total: asNumber(record?.["total"]) ?? 0,
     // A run cannot survive an app restart; report it as cancelled so it can be resumed.
     state: state === "running" ? "cancelled" : state,
+    ...(failed ? { failed } : {}),
     ...(error ? { error } : {}),
     updatedAt: asString(record?.["updatedAt"]) ?? ""
   };

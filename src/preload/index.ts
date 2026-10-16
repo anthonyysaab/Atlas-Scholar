@@ -19,6 +19,7 @@ import type {
   ConceptProposal,
   Deck,
   DocApi,
+  DocThemes,
   ExtractedDoc,
   ExtractProgress,
   FileRef,
@@ -127,7 +128,9 @@ const ragApi: RagApi = {
   remove: (docPath) => invoke<void>(IPC.rag.remove, docPath),
   query: (input) =>
     invoke<RagQueryResult>(IPC.rag.query, input),
-  search: (input) => invoke<LibrarySearchResult>(IPC.rag.search, input)
+  search: (input) => invoke<LibrarySearchResult>(IPC.rag.search, input),
+  themes: (docPath) => invoke<DocThemes | null>(IPC.rag.themes, docPath),
+  buildThemes: (docPath) => invoke<DocThemes>(IPC.rag.buildThemes, docPath)
 };
 
 const llmApi: Api["llm"] = {
