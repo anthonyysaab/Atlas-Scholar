@@ -49,7 +49,7 @@ export function OnboardingModal({
   };
 
   return (
-    <Modal open={open} onClose={() => void finish({})} title="Welcome to Reading Assistant" width="640px">
+    <Modal open={open} onClose={() => void finish({})} title="Welcome to Atlas Scholar" width="640px">
       <div className="space-y-4 p-4">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-text-weak">
           {STEPS.map((label, index) => (
@@ -62,8 +62,8 @@ export function OnboardingModal({
         {step === 0 ? (
           <div className="space-y-3 text-xs text-text-weak">
             <p className="leading-relaxed">
-              Reading Assistant runs models locally or against your own API keys. Let's detect what is
-              available and pick sensible defaults.
+              Atlas Scholar is a reading assistant. It runs models locally or against your own API
+              keys. Let's detect what is available and pick sensible defaults.
             </p>
             {status.detected.length > 0 ? (
               <div className="space-y-1">

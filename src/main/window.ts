@@ -12,7 +12,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 520,
     show: false,
     backgroundColor: windowBackground(),
-    title: "Reading Assistant",
+    title: "Atlas Scholar",
     // The renderer draws a themed title bar; Windows keeps native caption buttons via the overlay.
     titleBarStyle: "hidden",
     titleBarOverlay: titleBarOverlay(),

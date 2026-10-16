@@ -8,7 +8,7 @@ const GITHUB_REPO =
   "anthonyysaab/Reading-assistant---Annotate-papers-save-page-ask-questions-in-parallel";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
-const USER_AGENT = "Reading-Assistant";
+const USER_AGENT = "Atlas-Scholar";
 
 function parseVersion(value: string): number[] {
   return value
@@ -100,7 +100,7 @@ export async function downloadAndInstallUpdate(): Promise<void> {
     throw new Error(`Update download failed (${response.status}).`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
-  const name = basename(new URL(info.installerUrl).pathname) || "ReadingAssistant-setup.exe";
+  const name = basename(new URL(info.installerUrl).pathname) || "AtlasScholar-setup.exe";
   const target = join(app.getPath("temp"), name);
   await writeFile(target, buffer);
   const error = await shell.openPath(target);

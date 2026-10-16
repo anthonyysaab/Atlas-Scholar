@@ -63,26 +63,59 @@ function roundedRect(x, y, x0, y0, x1, y1, r) {
   return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 }
 
-function inRect(x, y, x0, y0, x1, y1) {
-  return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+function onRing(u, v, cx, cy, r, w) {
+  return Math.abs(Math.hypot(u - cx, v - cy) - r) <= w / 2;
 }
 
-function inCircle(x, y, cx, cy, r) {
-  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+// Butt caps: only points that project inside the segment count.
+function onSegment(u, v, x0, y0, x1, y1, w) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const t = ((u - x0) * dx + (v - y0) * dy) / (dx * dx + dy * dy);
+  if (t < 0 || t > 1) return false;
+  return Math.hypot(u - (x0 + t * dx), v - (y0 + t * dy)) <= w / 2;
+}
+
+// First-order distance to a rotated ellipse (|f| / |grad f|); exact enough for a thin stroke.
+function onEllipse(u, v, cx, cy, a, b, degrees, w) {
+  const angle = (degrees * Math.PI) / 180;
+  const dx = u - cx;
+  const dy = v - cy;
+  const lu = Math.cos(angle) * dx + Math.sin(angle) * dy;
+  const lv = -Math.sin(angle) * dx + Math.cos(angle) * dy;
+  const f = (lu / a) ** 2 + (lv / b) ** 2 - 1;
+  const grad = Math.hypot((2 * lu) / (a * a), (2 * lv) / (b * b));
+  return Math.abs(f) / grad <= w / 2;
 }
 
 // --- drawing ----------------------------------------------------------------------------------
 
-// "Page and voice": a square page and a circular voice on a paper tile; where they overlap is
-// knocked back to paper (even-odd), the document and the conversation sharing one space.
-const PAPER = { r: 0xf3, g: 0xef, b: 0xe6, a: 1 };
-const INK = { r: 0x15, g: 0x17, b: 0x1b, a: 1 };
+// "Armillary A": a celestial sphere whose meridians form an A and whose tilted ecliptic band is
+// the crossbar. Brass and verdigris on deep green. Geometry is in the 100-unit space of
+// build/icon.svg; keep the two in sync.
+const TILE = { r: 0x1e, g: 0x3a, b: 0x33, a: 1 };
+const BRASS = { r: 0xc9, g: 0xa1, b: 0x5a, a: 1 };
+const VERDIGRIS = { r: 0x7c, g: 0xc2, b: 0xab, a: 1 };
+
+// Taskbar sizes get a larger mark and heavier strokes, or the hairlines vanish.
+function opticalSize(N) {
+  if (N <= 16) return { scale: 0.86, weight: 2 };
+  if (N <= 24) return { scale: 0.84, weight: 1.7 };
+  if (N <= 32) return { scale: 0.82, weight: 1.4 };
+  if (N <= 48) return { scale: 0.78, weight: 1.15 };
+  return { scale: 0.73, weight: 1 };
+}
 
 function sample(x, y, N) {
   if (!roundedRect(x, y, 0, 0, N, N, 0.22 * N)) return { r: 0, g: 0, b: 0, a: 0 };
-  const page = inRect(x, y, 0.18 * N, 0.18 * N, 0.62 * N, 0.7 * N);
-  const voice = inCircle(x, y, 0.6 * N, 0.58 * N, 0.24 * N);
-  return page !== voice ? INK : PAPER;
+  const { scale, weight } = opticalSize(N);
+  const u = ((x / N - (1 - scale) / 2) / scale) * 100;
+  const v = ((y / N - (1 - scale) / 2) / scale) * 100;
+  if (onEllipse(u, v, 50, 58, 40, 10, -14, 3.5 * weight)) return VERDIGRIS;
+  if (onRing(u, v, 50, 50, 40, 5 * weight)) return BRASS;
+  if (onSegment(u, v, 50, 10, 30, 84.6, 5 * weight)) return BRASS;
+  if (onSegment(u, v, 50, 10, 70, 84.6, 5 * weight)) return BRASS;
+  return TILE;
 }
 
 function render(size) {

@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("Reading Assistant crashed:", error, info.componentStack);
+    console.error("Atlas Scholar crashed:", error, info.componentStack);
   }
 
   override render(): ReactNode {
@@ -32,7 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
           onClick={() => window.location.reload()}
           className="rounded border border-border px-3 py-1.5 text-xs text-text hover:bg-panel"
         >
-          Reload Reading Assistant
+          Reload Atlas Scholar
         </button>
       </div>
     );

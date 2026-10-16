@@ -1,4 +1,6 @@
-# Reading Assistant
+# Atlas Scholar
+
+*Reading assistant.*
 
 A local-first desktop app for reading papers: the document on one side, an LLM on the other.
 Open a PDF, highlight and annotate it, and ask questions that are answered from the text you are
@@ -14,23 +16,23 @@ Builds are on the [Releases page](../../releases/latest).
 
 **Windows**
 
-- `Reading.Assistant-<version>-setup.exe` — installer
-- `Reading.Assistant-<version>-portable.exe` — single file, nothing to install
+- `Atlas.Scholar-<version>-setup.exe` — installer
+- `Atlas.Scholar-<version>-portable.exe` — single file, nothing to install
 
 **macOS** (Apple Silicon: `arm64`, Intel: `x64`)
 
-- `Reading.Assistant-<version>-<arch>.dmg` — open it and drag the app into Applications
-- `Reading.Assistant-<version>-<arch>.zip` — the bare `.app`
+- `Atlas.Scholar-<version>-<arch>.dmg` — open it and drag the app into Applications
+- `Atlas.Scholar-<version>-<arch>.zip` — the bare `.app`
 
 The app is not notarized, so the first launch is blocked. Open **System Settings → Privacy &
 Security** and click **Open Anyway**, or run
-`xattr -dr com.apple.quarantine "/Applications/Reading Assistant.app"`.
+`xattr -dr com.apple.quarantine "/Applications/Atlas Scholar.app"`.
 
 **Linux** (x64)
 
-- `Reading.Assistant-<version>-x86_64.AppImage` — `chmod +x` it and run it (needs `libfuse2`)
-- `Reading.Assistant-<version>-amd64.deb` — `sudo apt install ./Reading.Assistant-*.deb`
-- `Reading.Assistant-<version>-x64.tar.gz` — unpack and run `reading-assistant`
+- `Atlas.Scholar-<version>-x86_64.AppImage` — `chmod +x` it and run it (needs `libfuse2`)
+- `Atlas.Scholar-<version>-amd64.deb` — `sudo apt install ./Atlas.Scholar-*.deb`
+- `Atlas.Scholar-<version>-x64.tar.gz` — unpack and run `atlas-scholar`
 
 On Ubuntu 24.04 and later, AppArmor can stop the AppImage's sandbox from starting; use the
 `.deb`, or launch the AppImage with `--no-sandbox`.

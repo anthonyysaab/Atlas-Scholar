@@ -61,7 +61,7 @@ test("Ctrl+F finds, highlights and steps through matches in a PDF", async () => 
 
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText("Welcome to Reading Assistant")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Welcome to Atlas Scholar")).toBeVisible({ timeout: 20_000 });
     await page.keyboard.press("Escape");
     await app.evaluate(({ BrowserWindow, dialog }, path) => {
       BrowserWindow.getAllWindows()[0]?.setSize(1400, 900);

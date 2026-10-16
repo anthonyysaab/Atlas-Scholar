@@ -39,8 +39,8 @@ describe("checkForUpdate", () => {
               tag_name: "v0.2.0",
               html_url: "https://github.com/x/y/releases/tag/v0.2.0",
               assets: [
-                { name: "Reading.Assistant-0.2.0-portable.exe", browser_download_url: "https://dl/portable.exe" },
-                { name: "Reading.Assistant-0.2.0-setup.exe", browser_download_url: "https://dl/setup.exe" }
+                { name: "Atlas.Scholar-0.2.0-portable.exe", browser_download_url: "https://dl/portable.exe" },
+                { name: "Atlas.Scholar-0.2.0-setup.exe", browser_download_url: "https://dl/setup.exe" }
               ]
             }),
             { status: 200, headers: { "content-type": "application/json" } }
@@ -58,9 +58,9 @@ describe("checkForUpdate", () => {
   });
 
   it("matches each platform's installer asset", () => {
-    expect(installerPattern("win32", "x64")?.test("Reading Assistant-0.6.0-setup.exe")).toBe(true);
-    expect(installerPattern("darwin", "arm64")?.test("Reading Assistant-0.6.0-arm64.dmg")).toBe(true);
-    expect(installerPattern("darwin", "arm64")?.test("Reading Assistant-0.6.0-x64.dmg")).toBe(false);
+    expect(installerPattern("win32", "x64")?.test("Atlas Scholar-0.6.0-setup.exe")).toBe(true);
+    expect(installerPattern("darwin", "arm64")?.test("Atlas Scholar-0.6.0-arm64.dmg")).toBe(true);
+    expect(installerPattern("darwin", "arm64")?.test("Atlas Scholar-0.6.0-x64.dmg")).toBe(false);
     expect(installerPattern("linux", "x64")).toBeNull();
   });
 

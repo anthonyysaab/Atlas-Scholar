@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session } from "electron";
 import { IPC } from "@shared/channels";
+import { legacyProfileDir } from "@main/config/profile";
 import { emitToRenderer } from "@main/events";
 import { registerIpcHandlers } from "@main/ipc";
 import { initLibraryService, startLibraryService } from "@main/library/service";
@@ -11,7 +12,12 @@ import { buildContentSecurityPolicy } from "@shared/csp";
 // Test seams: a throwaway profile instead of the real userData directory, and a library folder
 // to open (created on first use) instead of the last library.
 const userDataDir = process.env["RA_USER_DATA_DIR"];
-if (userDataDir) app.setPath("userData", userDataDir);
+if (userDataDir) {
+  app.setPath("userData", userDataDir);
+} else {
+  const legacy = legacyProfileDir(app.getPath("appData"), app.getPath("userData"));
+  if (legacy) app.setPath("userData", legacy);
+}
 const libraryDir = process.env["RA_LIBRARY_DIR"];
 
 const gotLock = app.requestSingleInstanceLock();

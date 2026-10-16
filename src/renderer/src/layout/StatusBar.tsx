@@ -80,7 +80,7 @@ export function StatusBar() {
             type="button"
             disabled={installing}
             onClick={() => {
-              if (!window.confirm(`Update Reading Assistant to ${update.latest}? The installer will open.`)) {
+              if (!window.confirm(`Update Atlas Scholar to ${update.latest}? The installer will open.`)) {
                 return;
               }
               void installUpdate().then(() => toast.info("Opened the installer — finish the update there."));

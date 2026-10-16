@@ -1,10 +1,12 @@
-# Reading Assistant — Agent Guide
+# Atlas Scholar (Reading Assistant) — Agent Guide
 
 This repository contains **plans and instructions only**. No application code exists yet.
 Each workstream is split into its own numbered folder with an `AGENTS.md` describing
 exactly what to build, in what order, and how to verify it. Shared contracts live in `docs/`.
 
-> A reading assistant desktop app: view a document on one side, ask an LLM questions about
+> Atlas Scholar, a reading assistant desktop app (renamed from Reading Assistant after 0.6.0; `appId`
+> stays `com.readingassistant.app` and existing profiles in `%APPDATA%\Reading Assistant` are kept
+> by `src/main/config/profile.ts`): view a document on one side, ask an LLM questions about
 > it on the other. Annotate PDFs, edit text files, and query the whole document via a local
 > RAG index. The UI mirrors OpenCode's desktop layout (see `docs/layout.md`).
 
@@ -81,11 +83,11 @@ is the whole app; the numbered folders are plans, the app lives at the root):
   point the app at a throwaway profile and library folder)
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)
 - Package: `npm run package` (electron-vite build + electron-builder NSIS x64 → `release/`)
-  - Installer: `release/Reading Assistant-<version>-setup.exe`; unpacked app: `release/win-unpacked/`
+  - Installer: `release/Atlas Scholar-<version>-setup.exe`; unpacked app: `release/win-unpacked/`
   - macOS/Linux: `npm run package:mac` / `npm run package:linux` need a native host; the
     `.github/workflows/release.yml` workflow builds both on `v*` tags and attaches them to the
     release (mac: unsigned ad-hoc dmg/zip, arm64 + x64; linux: AppImage/deb/tar.gz x64).
-  - `electron-builder.yml` pins `appId=com.readingassistant.app`, `productName=Reading Assistant`, `build/icon.ico`.
+  - `electron-builder.yml` pins `appId=com.readingassistant.app`, `productName=Atlas Scholar`, `build/icon.ico`.
 
 ## Workstream AGENTS.md template
 

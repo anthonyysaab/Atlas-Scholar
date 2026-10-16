@@ -1,6 +1,6 @@
 appId: com.readingassistant.app
-productName: Reading Assistant
-copyright: Copyright © 2026 Reading Assistant
+productName: Atlas Scholar
+copyright: Copyright © 2026 Atlas Scholar
 directories:
   buildResources: build
   output: release
@@ -54,9 +54,9 @@ linux:
         - x64
   icon: build/icon.png
   category: Office
-  synopsis: Read documents and ask an LLM about them
-  maintainer: Reading Assistant
-  executableName: reading-assistant
+  synopsis: "Reading assistant: read documents and ask an LLM about them"
+  maintainer: Atlas Scholar
+  executableName: atlas-scholar
   syncDesktopName: true
   artifactName: ${productName}-${version}-${arch}.${ext}
 nsis:
@@ -66,5 +66,5 @@ nsis:
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Reading Assistant
-  uninstallDisplayName: Reading Assistant
+  shortcutName: Atlas Scholar
+  uninstallDisplayName: Atlas Scholar

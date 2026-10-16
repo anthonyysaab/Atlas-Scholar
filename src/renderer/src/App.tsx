@@ -87,7 +87,7 @@ export function App() {
     const failure = error ? `Failed to load settings: ${error}` : libraryError ? `Failed to load the library: ${libraryError}` : null;
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-text-weak">
-        <span>{failure ?? "Loading Reading Assistant…"}</span>
+        <span>{failure ?? "Loading Atlas Scholar…"}</span>
         {failure ? (
           <button
             type="button"

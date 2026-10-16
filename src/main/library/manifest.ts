@@ -9,7 +9,7 @@ import { relativeInside } from "./paths";
 
 export const MANIFEST_FILE = "library.json";
 
-const README = `This folder holds Reading Assistant's data for the library around it:
+const README = `This folder holds Atlas Scholar's data for the library around it:
 concept links, chat threads, annotations, bookmarks, flashcards and the search index.
 Paths inside are relative to the library folder, so you can move, zip or sync the whole
 library and everything keeps working.
@@ -73,7 +73,7 @@ export async function refuseAsLibrary(root: string, userData: string): Promise<s
 }
 
 export function newManifest(name: string, appVersion: string, now: Date = new Date()): LibraryManifest {
-  return { version: 1, id: randomUUID(), name, createdAt: now.toISOString(), createdWith: `reading-assistant ${appVersion}` };
+  return { version: 1, id: randomUUID(), name, createdAt: now.toISOString(), createdWith: `atlas-scholar ${appVersion}` };
 }
 
 /** Write the manifest and README into `<dataDir>` (the live `.assistant` or a staging folder). */

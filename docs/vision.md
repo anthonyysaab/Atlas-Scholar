@@ -2,7 +2,7 @@
 
 ## What we are building
 
-A **local-first desktop reading assistant**. Open a document on one side; ask an LLM questions
+**Atlas Scholar** is a **local-first desktop reading assistant**. Open a document on one side; ask an LLM questions
 about it on the other. Read, annotate, and edit documents, and query the whole document through
 a local retrieval index. An API model or a local model can answer; the document never has to
 leave the machine unless you configure a remote provider.

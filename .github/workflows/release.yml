@@ -57,7 +57,7 @@ jobs:
       - run: npx electron-builder --${{ matrix.platform }} --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: reading-assistant-${{ matrix.platform }}
+          name: atlas-scholar-${{ matrix.platform }}
           path: ${{ matrix.files }}
           if-no-files-found: error
       - name: Attach to GitHub release
@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --title "Reading Assistant $TAG" --notes "" \
+            || gh release create "$TAG" --title "Atlas Scholar $TAG" --notes "" \
             || true
           shopt -s nullglob
           files=(release/*.dmg release/*.zip release/*.AppImage release/*.deb release/*.tar.gz)
