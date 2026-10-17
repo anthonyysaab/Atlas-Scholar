@@ -279,6 +279,22 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
             >
               Accept all
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                const ids = visible.map((entry) => entry.id);
+                if (
+                  !window.confirm(
+                    `Reject all ${ids.length} proposal${ids.length === 1 ? "" : "s"}? Rejected names are not proposed again for their document.`
+                  )
+                )
+                  return;
+                void run(() => window.api.links.proposals.reject(ids));
+              }}
+              className="rounded border border-border px-1.5 py-px text-text-weak hover:text-danger"
+            >
+              Reject all
+            </button>
             {selected.length > 0 ? (
               <>
                 <button
