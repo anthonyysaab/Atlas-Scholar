@@ -1,7 +1,7 @@
 {
   "name": "atlas-scholar",
   "productName": "Atlas Scholar",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Reading assistant: a local-first desktop app to view documents, annotate them, and ask an LLM grounded in the text.",
   "private": true,
   "license": "UNLICENSED",
