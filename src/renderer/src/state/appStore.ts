@@ -11,9 +11,12 @@ export interface FileEvent {
 
 /** What the "Link to…" picker links: a passage to a concept, or to a passage in another document. */
 export interface LinkPickerRequest {
-  passage: PassageDraft;
+  /** Absent when only cards are linked: the picker then only chooses (or creates) a concept. */
+  passage?: PassageDraft;
   /** More passages linked to the same concept, e.g. the rest of an annotation group. */
   extraPassages?: PassageDraft[];
+  /** What is being linked, shown instead of the passage list (e.g. "2 passages and 3 cards"). */
+  summary?: { title: string; lines: string[] };
   /** Offered first as a new concept when nothing is typed (a group's title). */
   suggestedName?: string;
   source?: LinkSource;

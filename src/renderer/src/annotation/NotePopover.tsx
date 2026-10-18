@@ -6,7 +6,10 @@ import { revealSelection } from "@renderer/viewer/selection";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLOR } from "./colors";
 import { copyAnnotationsToNotes } from "@renderer/notes/copyToNotes";
-import { useAnnotationStore } from "./store";
+import { generateCards, makeCards } from "@renderer/gather/actions";
+import { annotationItem } from "@renderer/gather/items";
+import { useGatherStore, useIsGathered } from "@renderer/gather/store";
+import { EMPTY_GROUPS, useAnnotationStore } from "./store";
 
 interface NotePopoverProps {
   annotation: Annotation;
@@ -146,6 +149,54 @@ export function NotePopover({ annotation, position, onClose }: NotePopoverProps)
           </button>
         </div>
       </div>
+      <HighlightCardActions annotation={annotation} note={note} onBeforeAction={commitNote} />
+    </div>
+  );
+}
+
+/** Cards from this one highlight, or add it to the cross-tab selection to combine it with others. */
+function HighlightCardActions({ annotation, note, onBeforeAction }: { annotation: Annotation; note: string; onBeforeAction: () => void }) {
+  const groups = useAnnotationStore((state) => state.groupsByDoc[annotation.docPath] ?? EMPTY_GROUPS);
+  const gathered = useIsGathered(`annotation:${annotation.id}`);
+  const item = (): ReturnType<typeof annotationItem> => annotationItem({ ...annotation, note }, groups);
+  const button = "rounded border border-border px-2 py-0.5 hover:bg-bg-subtle";
+  return (
+    <div className="mt-2 flex items-center gap-1 border-t border-border pt-2 text-text-weak">
+      <span className="mr-auto text-[10px] uppercase tracking-wide">Cards</span>
+      <button
+        type="button"
+        onClick={() => {
+          onBeforeAction();
+          void makeCards([item()]);
+        }}
+        title="One card: the quote on the front, your note on the back (edit before saving)"
+        className={button}
+      >
+        Make
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onBeforeAction();
+          void generateCards([item()]);
+        }}
+        title="Let the model write cards from this highlight"
+        className={button}
+      >
+        Generate
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onBeforeAction();
+          useGatherStore.getState().toggle(item());
+        }}
+        aria-pressed={gathered}
+        title="Add to the selection, to make cards or ask about it together with other items"
+        className={`${button} ${gathered ? "border-accent text-accent" : ""}`}
+      >
+        {gathered ? "Selected ✓" : "Select"}
+      </button>
     </div>
   );
 }

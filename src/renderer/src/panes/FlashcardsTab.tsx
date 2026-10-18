@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Flashcard } from "@shared/types";
 import { isDue } from "@shared/srs";
 import { useDocSelection } from "@renderer/annotation/selection";
 import { Icon } from "@renderer/components/Icon";
 import { Markdown } from "@renderer/components/Markdown";
+import { generateCards, makeCards } from "@renderer/gather/actions";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { cardItem } from "@renderer/gather/items";
+import { useGatherStore, type GatherKind } from "@renderer/gather/store";
 import { useAppStore } from "@renderer/state/appStore";
-import { NO_CARDS, useFlashcardStore } from "@renderer/state/flashcardStore";
+import { incompleteDraft, NO_CARDS, useFlashcardStore } from "@renderer/state/flashcardStore";
+import { ensureLinksSubscription } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
+import { CardConcepts, linkCardToConcept } from "@renderer/study/CardConcepts";
 import { CardEditor } from "@renderer/study/CardEditor";
 import { addSelectionToFlashcards, openFlashcardSource } from "@renderer/study/flashcardActions";
 import { ReviewSession } from "@renderer/study/ReviewSession";
-import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 
 const button = "rounded border border-border px-2 py-0.5 text-xs text-text hover:bg-panel disabled:opacity-40";
 const quiet = "rounded p-1 text-text-weak hover:text-text";
@@ -126,59 +131,61 @@ function DeckBar() {
   );
 }
 
-function SourcesSection() {
-  const passages = useFlashcardStore((state) => state.passages);
-  const removePassage = useFlashcardStore((state) => state.removePassage);
-  const clearPassages = useFlashcardStore((state) => state.clearPassages);
-  const generate = useFlashcardStore((state) => state.generate);
+const KIND_NAMES: Record<GatherKind, [string, string]> = {
+  passage: ["passage", "passages"],
+  annotation: ["highlight", "highlights"],
+  chat: ["chat message", "chat messages"],
+  note: ["note", "notes"],
+  search: ["search result", "search results"],
+  concept: ["concept", "concepts"],
+  conceptPassage: ["linked passage", "linked passages"],
+  card: ["card", "cards"]
+};
+
+/** Cards come from the cross-tab selection: whatever is ticked in any tab, plus text selected in a document. */
+function SelectionSection() {
+  const items = useGatherStore((state) => state.items);
   const generating = useFlashcardStore((state) => state.generating);
   const live = useDocSelection();
   const pinned = useAppStore((state) => state.selection);
   const [maxText, setMaxText] = useState("");
   const canAdd = Boolean(live?.text.trim() || pinned?.text.trim());
+  const usable = items.filter((item) => item.kind !== "card");
 
-  const run = (): void => {
+  const counts = new Map<GatherKind, number>();
+  for (const item of usable) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+  const summary = [...counts.entries()]
+    .map(([kind, count]) => `${count} ${KIND_NAMES[kind][count === 1 ? 0 : 1]}`)
+    .join(" · ");
+
+  const generate = (): void => {
     const parsed = Number.parseInt(maxText, 10);
-    void generate(Number.isFinite(parsed) && parsed > 0 ? parsed : undefined);
+    void generateCards(usable, Number.isFinite(parsed) && parsed > 0 ? parsed : undefined);
   };
 
   return (
     <section className="flex flex-col gap-1.5 rounded border border-border p-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-text">Generate from passages</span>
+        <span className="text-[11px] font-medium text-text">From your selection</span>
         <button
           type="button"
           onClick={addSelectionToFlashcards}
           disabled={!canAdd}
           className={button}
-          title={canAdd ? "Queue the selected passage" : "Select text in a document first"}
+          title={canAdd ? "Add the text selected in the document (S in a PDF)" : "Select text in a document first"}
         >
-          + Add selection
+          + Add document selection
         </button>
       </div>
-      {passages.length === 0 ? (
+      {usable.length === 0 ? (
         <p className="text-[11px] leading-relaxed text-text-weak">
-          Select text in a PDF or text file, then add it here. Queue passages from any document; the model writes
-          question/answer cards from them.
+          Tick anything in any tab (highlights, chat answers, notes, concepts, Find in library results) or select text in a
+          document and press <span className="text-text">S</span>. Make one card per item, or let the model write cards from all
+          of it.
         </p>
       ) : (
         <>
-          <ul className="flex flex-col gap-1">
-            {passages.map((passage, index) => (
-              <li key={`${passage.docPath}-${index}`} className="group flex items-start gap-1 rounded bg-bg-subtle px-2 py-1">
-                <span className="min-w-0 flex-1 text-[11px] text-text-weak" title={passage.text}>
-                  <span className="text-text">
-                    {fileName(passage.docPath)}
-                    {passage.page !== undefined ? ` · p.${passage.page}` : ""}
-                  </span>
-                  <MarkdownPreview content={passage.text} lines={2} />
-                </span>
-                <button type="button" onClick={() => removePassage(index)} className={`${quiet} opacity-0 group-hover:opacity-100`} title="Remove">
-                  <Icon name="close" className="h-3 w-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <p className="text-[11px] text-text-weak">{summary}</p>
           <div className="flex items-center gap-1.5">
             <label className="flex items-center gap-1 text-[11px] text-text-weak" title="Leave empty to let the model decide">
               Max
@@ -191,11 +198,11 @@ function SourcesSection() {
               />
             </label>
             <span className="flex-1" />
-            <button type="button" onClick={clearPassages} className="text-[11px] text-text-weak hover:text-text" disabled={generating}>
-              Clear
+            <button type="button" onClick={() => void makeCards(usable)} className={button} title="One card per item, without the model">
+              Make {usable.length}
             </button>
-            <button type="button" onClick={run} className={button} disabled={generating}>
-              {generating ? "Generating…" : `Generate cards (${passages.length})`}
+            <button type="button" onClick={generate} className={button} disabled={generating}>
+              {generating ? "Generating…" : "Generate cards"}
             </button>
           </div>
         </>
@@ -222,7 +229,7 @@ function DraftsSection() {
   return (
     <section className="flex flex-col gap-1.5 rounded border border-accent p-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium text-text">Review {drafts.length} generated card{drafts.length === 1 ? "" : "s"}</span>
+        <span className="text-[11px] font-medium text-text">Review {drafts.length} new card{drafts.length === 1 ? "" : "s"}</span>
         <span className="flex items-center gap-1">
           <button type="button" onClick={discardDrafts} className="text-[11px] text-text-weak hover:text-text">
             Discard
@@ -239,6 +246,7 @@ function DraftsSection() {
               <CardEditor
                 initialQuestion={draft.question}
                 initialAnswer={draft.answer}
+                focus={draft.question.trim() ? "answer" : "question"}
                 submitLabel="Done"
                 onSubmit={(question, answer) => {
                   updateDraft(index, { question, answer });
@@ -248,11 +256,30 @@ function DraftsSection() {
               />
             </li>
           ) : (
-            <li key={index} className="group flex items-start gap-1 rounded bg-bg-subtle px-2 py-1">
-              <button type="button" onClick={() => setEditing(index)} className="min-w-0 flex-1 text-left" title="Edit">
-                <Markdown content={draft.question} className="text-xs text-text" />
-                <Markdown content={draft.answer} className="text-[11px] text-text-weak" />
-              </button>
+            <li
+              key={index}
+              className={`group flex items-start gap-1 rounded bg-bg-subtle px-2 py-1 ${incompleteDraft(draft) ? "border border-dashed border-warning/70" : ""}`}
+            >
+              <div className="min-w-0 flex-1">
+                <button type="button" onClick={() => setEditing(index)} className="w-full text-left" title="Edit">
+                  {draft.question.trim() ? (
+                    <Markdown content={draft.question} className="text-xs text-text" />
+                  ) : (
+                    <span className="text-xs italic text-warning">Write the question…</span>
+                  )}
+                  {draft.answer.trim() ? (
+                    <Markdown content={draft.answer} className="text-[11px] text-text-weak" />
+                  ) : (
+                    <span className="text-[11px] italic text-warning">Write the answer…</span>
+                  )}
+                </button>
+                <CardConcepts
+                  ids={draft.conceptIds}
+                  onUnlink={(conceptId) =>
+                    updateDraft(index, { conceptIds: (draft.conceptIds ?? []).filter((id) => id !== conceptId) })
+                  }
+                />
+              </div>
               <button type="button" onClick={() => removeDraft(index)} className={`${quiet} opacity-0 group-hover:opacity-100`} title="Drop this card">
                 <Icon name="close" className="h-3 w-3" />
               </button>
@@ -267,8 +294,17 @@ function DraftsSection() {
 function CardRow({ card }: { card: Flashcard }) {
   const updateCard = useFlashcardStore((state) => state.updateCard);
   const removeCard = useFlashcardStore((state) => state.removeCard);
+  const focused = useFlashcardStore((state) => state.focusCardId === card.id);
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (!focused) return;
+    setOpen(true);
+    rowRef.current?.scrollIntoView({ block: "center" });
+    useFlashcardStore.getState().clearFocus();
+  }, [focused]);
 
   if (editing) {
     return (
@@ -288,12 +324,16 @@ function CardRow({ card }: { card: Flashcard }) {
   }
 
   return (
-    <li className="group rounded px-2 py-1 hover:bg-bg-subtle">
+    <li ref={rowRef} className="group group/row rounded px-2 py-1 hover:bg-bg-subtle">
       <div className="flex items-start gap-1">
+        <GatherToggle itemKey={`card:${card.id}`} make={() => cardItem(card)} className="mt-0.5" />
         <button type="button" onClick={() => setOpen((value) => !value)} className="min-w-0 flex-1 text-left" title={open ? "Hide answer" : "Show answer"}>
           <Markdown content={card.question} className="text-xs text-text" />
         </button>
         <span className="flex shrink-0 opacity-0 group-hover:opacity-100">
+          <button type="button" onClick={() => linkCardToConcept(card)} className={quiet} title="Link this card to a concept of the graph">
+            <Icon name="link" className="h-3 w-3" />
+          </button>
           <button type="button" onClick={() => setEditing(true)} className={quiet} title="Edit card">
             <span className="text-[10px]">Edit</span>
           </button>
@@ -301,6 +341,12 @@ function CardRow({ card }: { card: Flashcard }) {
             <Icon name="trash" className="h-3 w-3" />
           </button>
         </span>
+      </div>
+      <div className="pl-5">
+        <CardConcepts
+          ids={card.conceptIds}
+          onUnlink={(conceptId) => void updateCard(card.id, { conceptIds: (card.conceptIds ?? []).filter((id) => id !== conceptId) })}
+        />
       </div>
       {open ? (
         <div className="mt-1 border-l-2 border-border pl-2">
@@ -338,6 +384,8 @@ export function FlashcardsTab() {
   useEffect(() => {
     if (!decksLoaded) void loadDecks();
   }, [decksLoaded, loadDecks]);
+
+  useEffect(() => ensureLinksSubscription(), []);
 
   // Refresh the due count while the tab is open, so cards that come due show up without reloading.
   useEffect(() => {
@@ -393,7 +441,7 @@ export function FlashcardsTab() {
               </button>
             </div>
 
-            <SourcesSection />
+            <SelectionSection />
             <DraftsSection />
 
             <div className="flex items-center justify-between">

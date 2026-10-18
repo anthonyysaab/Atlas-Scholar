@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Annotation, AnnotationGroup } from "@shared/types";
+import { samePath } from "@shared/docLabel";
+import { annotationItem } from "@renderer/gather/items";
+import { useGatherStore } from "@renderer/gather/store";
 import { Markdown } from "@renderer/components/Markdown";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
@@ -37,14 +40,22 @@ export function AnnotationList({ docPath }: { docPath: string }) {
   const storage = useAnnotationStore((state) => state.storageByDoc[docPath] ?? "none");
   const doc = useAppStore(selectActiveDoc);
   const [view, setView] = useState<ListView>("pages");
-  const [selected, setSelected] = useState<string[]>([]);
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const gathered = useGatherStore((state) => state.items);
+  // The selection is shared across tabs (and documents); here it is this document's highlights.
+  const selected = useMemo(
+    () =>
+      gathered.flatMap((item) =>
+        item.kind === "annotation" && item.annotationId && item.docPath && samePath(item.docPath, docPath) ? [item.annotationId] : []
+      ),
+    [gathered, docPath]
+  );
 
-  useEffect(() => {
-    setSelected([]);
-    setAnchorId(null);
-  }, [docPath]);
+  useEffect(() => setAnchorId(null), [docPath]);
+
+  const clearSelected = (): void =>
+    useGatherStore.getState().removeWhere((item) => item.kind === "annotation" && Boolean(item.docPath && samePath(item.docPath, docPath)));
 
   const ordered = useMemo(
     () => [...items].sort((a, b) => a.anchor.page - b.anchor.page || (a.anchor.rects[0]?.y ?? 0) - (b.anchor.rects[0]?.y ?? 0)),
@@ -70,17 +81,18 @@ export function AnnotationList({ docPath }: { docPath: string }) {
   }, [groups]);
 
   const toggle = (id: string, range: boolean): void => {
+    const gather = useGatherStore.getState();
     if (range && anchorId) {
       const from = ordered.findIndex((item) => item.id === anchorId);
       const to = ordered.findIndex((item) => item.id === id);
       if (from >= 0 && to >= 0) {
-        const span = ordered.slice(Math.min(from, to), Math.max(from, to) + 1).map((item) => item.id);
-        setSelected((current) => [...new Set([...current, ...span])]);
+        gather.add(ordered.slice(Math.min(from, to), Math.max(from, to) + 1).map((item) => annotationItem(item, groups)));
         return;
       }
     }
     setAnchorId(id);
-    setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+    const annotation = ordered.find((item) => item.id === id);
+    if (annotation) gather.toggle(annotationItem(annotation, groups));
   };
 
   const selectedItems = ordered.filter((item) => selected.includes(item.id));
@@ -94,14 +106,9 @@ export function AnnotationList({ docPath }: { docPath: string }) {
       ...(first?.color ? { color: first.color } : {})
     });
     if (group) {
-      setSelected([]);
+      clearSelected();
       setView("groups");
     }
-  };
-
-  const useSelectionAsContext = (): void => {
-    const text = selectedItems.map(contextText).filter(Boolean).join("\n\n");
-    if (text) useAppStore.getState().setSelection({ text });
   };
 
   if (error) {
@@ -140,7 +147,7 @@ export function AnnotationList({ docPath }: { docPath: string }) {
         ))}
         <span className="flex-1" />
         {view === "pages" && selected.length === 0 && items.length > 1 ? (
-          <span className="text-[10px] text-text-weak">Tick highlights to group them</span>
+          <span className="text-[10px] text-text-weak">Tick highlights to group them or make cards</span>
         ) : null}
       </div>
 
@@ -171,7 +178,7 @@ export function AnnotationList({ docPath }: { docPath: string }) {
                         type="button"
                         onClick={() => {
                           setAddOpen(false);
-                          void addToGroup(group, selectedItems).then(() => setSelected([]));
+                          void addToGroup(group, selectedItems).then(clearSelected);
                         }}
                         className="w-full truncate px-2 py-1 text-left hover:bg-bg-subtle"
                       >
@@ -183,9 +190,6 @@ export function AnnotationList({ docPath }: { docPath: string }) {
               ) : null}
             </span>
           ) : null}
-          <button type="button" onClick={useSelectionAsContext} className="rounded border border-border px-1.5 py-0.5 hover:bg-bg-subtle">
-            Use as context
-          </button>
           <button
             type="button"
             onClick={() => void copyAnnotationsToNotes(selectedItems)}
@@ -194,7 +198,7 @@ export function AnnotationList({ docPath }: { docPath: string }) {
             Copy to notes
           </button>
           <span className="flex-1" />
-          <button type="button" onClick={() => setSelected([])} className="rounded px-1.5 py-0.5 text-text-weak hover:text-text">
+          <button type="button" onClick={clearSelected} className="rounded px-1.5 py-0.5 text-text-weak hover:text-text">
             Clear
           </button>
         </div>

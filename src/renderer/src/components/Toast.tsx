@@ -20,7 +20,10 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
+    <div
+      className="pointer-events-none fixed right-4 z-[60] flex w-80 flex-col gap-2"
+      style={{ bottom: "calc(1rem + var(--ra-tray-height, 0px))" }}
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}

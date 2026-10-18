@@ -7,9 +7,13 @@ import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
 import { ConceptDetail } from "@renderer/links/ConceptDetail";
 import { LinkChatBar } from "@renderer/links/LinkChatBar";
 import { conceptsOfPassage, indexGraph } from "@renderer/links/graphIndex";
+import { Markdown } from "@renderer/components/Markdown";
+import { switchPanelTab } from "@renderer/lib/commands";
 import { openPassage } from "@renderer/lib/openPassage";
 import { useAppStore } from "@renderer/state/appStore";
+import { useFlashcardStore } from "@renderer/state/flashcardStore";
 import { ensureLinksSubscription, useLinksStore } from "@renderer/state/linksStore";
+import { CardConcepts } from "@renderer/study/CardConcepts";
 import { GraphCanvas } from "./GraphCanvas";
 import { buildGraphData, docColor } from "./model";
 import type { SimNode } from "./simulation";
@@ -26,6 +30,9 @@ export function GraphView() {
   const setGraphFocus = useAppStore((state) => state.setGraphFocus);
   const [hiddenDocs, setHiddenDocs] = useState<Set<string>>(new Set());
   const [conceptsOnly, setConceptsOnly] = useState(false);
+  const [showCards, setShowCards] = useState(true);
+  const allCards = useFlashcardStore((state) => state.allCards);
+  const linkedCards = useMemo(() => (allCards ?? []).filter((card) => (card.conceptIds?.length ?? 0) > 0), [allCards]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(selectedConceptId);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -33,6 +40,10 @@ export function GraphView() {
   const [centerOn, setCenterOn] = useState<string | null>(null);
 
   useEffect(() => ensureLinksSubscription(), []);
+
+  useEffect(() => {
+    void useFlashcardStore.getState().loadAllCards();
+  }, []);
 
   // Decided once, from the first loaded snapshot; the user's toggle wins afterwards.
   const sizedRef = useRef(false);
@@ -56,13 +67,14 @@ export function GraphView() {
   }, [selectedConceptId]);
 
   const data = useMemo(
-    () => buildGraphData(graph, { hiddenDocs, conceptsOnly, focusId, focusHops: 2 }),
-    [graph, hiddenDocs, conceptsOnly, focusId]
+    () => buildGraphData(graph, { hiddenDocs, conceptsOnly, focusId, focusHops: 2, ...(showCards ? { cards: linkedCards } : {}) }),
+    [graph, hiddenDocs, conceptsOnly, focusId, showCards, linkedCards]
   );
 
   const index = indexGraph(graph);
   const selectedConcept = selectedId ? index.conceptById.get(selectedId) : undefined;
   const selectedPassage = selectedId ? index.passageById.get(selectedId) : undefined;
+  const selectedCard = selectedId?.startsWith("card:") ? linkedCards.find((card) => `card:${card.id}` === selectedId) : undefined;
 
   const matches = useMemo(() => {
     const trimmed = query.trim();
@@ -81,6 +93,11 @@ export function GraphView() {
   };
 
   const open = (node: SimNode): void => {
+    if (node.kind === "card") {
+      const card = linkedCards.find((entry) => entry.id === node.cardId);
+      if (card) void useFlashcardStore.getState().focusCard(card).then(() => switchPanelTab("flashcards"));
+      return;
+    }
     if (node.kind !== "passage" || !node.docPath) return;
     const passage = index.passageById.get(node.id);
     void openPassage({
@@ -192,6 +209,12 @@ export function GraphView() {
             <input type="checkbox" checked={conceptsOnly} onChange={(event) => setConceptsOnly(event.target.checked)} />
             Concepts only
           </label>
+          {linkedCards.length > 0 ? (
+            <label className="flex cursor-pointer items-center gap-1 text-text-weak" title="Show flashcards next to their concepts">
+              <input type="checkbox" checked={showCards} onChange={(event) => setShowCards(event.target.checked)} />
+              Cards ({linkedCards.length})
+            </label>
+          ) : null}
           {focusId ? (
             <button type="button" onClick={() => setFocusId(null)} className="rounded px-1 text-accent hover:underline">
               Show all
@@ -206,11 +229,11 @@ export function GraphView() {
           </button>
         </div>
       </div>
-      {selectedConcept || selectedPassage ? (
+      {selectedConcept || selectedPassage || selectedCard ? (
         <aside className="w-[280px] shrink-0 overflow-y-auto border-l border-border bg-bg-subtle p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wide text-text-weak">
-              {selectedConcept ? "Concept" : "Passage"}
+              {selectedConcept ? "Concept" : selectedCard ? "Card" : "Passage"}
             </span>
             <button type="button" onClick={() => select(null)} className="rounded p-0.5 text-text-weak hover:text-text">
               <Icon name="close" className="h-3.5 w-3.5" />
@@ -218,6 +241,19 @@ export function GraphView() {
           </div>
           {selectedConcept ? (
             <ConceptDetail concept={selectedConcept} />
+          ) : selectedCard ? (
+            <div className="flex flex-col gap-2 text-xs">
+              <Markdown content={selectedCard.question} className="text-text" />
+              <Markdown content={selectedCard.answer} className="border-l-2 border-border pl-2 text-text-weak" />
+              <CardConcepts ids={selectedCard.conceptIds} />
+              <button
+                type="button"
+                onClick={() => void useFlashcardStore.getState().focusCard(selectedCard).then(() => switchPanelTab("flashcards"))}
+                className="self-start rounded border border-border px-2 py-0.5 text-text hover:bg-panel"
+              >
+                Open in Cards
+              </button>
+            </div>
           ) : selectedPassage ? (
             <div className="flex flex-col gap-2 text-xs">
               <div className="text-text-weak">

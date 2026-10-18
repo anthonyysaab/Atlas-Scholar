@@ -12,10 +12,19 @@ interface CardEditorProps {
   submitLabel: string;
   onSubmit: (question: string, answer: string) => void;
   onCancel: () => void;
+  /** Which side gets the cursor, e.g. the empty answer of a card made from a highlight. */
+  focus?: "question" | "answer";
 }
 
 /** Question/answer form shared by "new card" and "edit card". Ctrl+Enter submits, Escape cancels. */
-export function CardEditor({ initialQuestion = "", initialAnswer = "", submitLabel, onSubmit, onCancel }: CardEditorProps) {
+export function CardEditor({
+  initialQuestion = "",
+  initialAnswer = "",
+  submitLabel,
+  onSubmit,
+  onCancel,
+  focus = "question"
+}: CardEditorProps) {
   const [question, setQuestion] = useState(initialQuestion);
   const [answer, setAnswer] = useState(initialAnswer);
   const valid = question.trim().length > 0 && answer.trim().length > 0;
@@ -41,7 +50,7 @@ export function CardEditor({ initialQuestion = "", initialAnswer = "", submitLab
   return (
     <div className="flex flex-col gap-1.5 rounded border border-border bg-bg-subtle p-2" onKeyDown={onKeyDown}>
       <textarea
-        autoFocus
+        autoFocus={focus === "question"}
         rows={2}
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
@@ -49,6 +58,7 @@ export function CardEditor({ initialQuestion = "", initialAnswer = "", submitLab
         className={fieldClass}
       />
       <textarea
+        autoFocus={focus === "answer"}
         rows={2}
         value={answer}
         onChange={(event) => setAnswer(event.target.value)}

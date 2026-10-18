@@ -5,6 +5,8 @@ import { EMPTY_ANNOTATIONS, useAnnotationStore } from "@renderer/annotation/stor
 import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
 import { Markdown } from "@renderer/components/Markdown";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { noteItem } from "@renderer/gather/items";
 import { annotationLink } from "@renderer/notes/copyToNotes";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { useNotesStore } from "@renderer/state/notesStore";
@@ -59,14 +61,19 @@ function NotePicker({ onClose }: { onClose: () => void }) {
       <ul className="max-h-72 overflow-y-auto py-1">
         {shown.length === 0 ? <li className="px-2 py-1 text-xs text-text-weak">No notes match.</li> : null}
         {shown.map((note) => (
-          <li key={note.id}>
+          <li key={note.id} className="group/row flex items-start gap-1 pl-2">
+            <GatherToggle
+              itemKey={`note:${note.id}`}
+              make={() => noteItem({ id: note.id, title: note.title, body: note.excerpt })}
+              className="mt-1.5"
+            />
             <button
               type="button"
               onClick={() => {
                 void useNotesStore.getState().open(note.id);
                 onClose();
               }}
-              className={`flex w-full flex-col px-2 py-1 text-left hover:bg-bg-subtle ${note.id === activeId ? "bg-bg-subtle" : ""}`}
+              className={`flex min-w-0 flex-1 flex-col py-1 pl-1 pr-2 text-left hover:bg-bg-subtle ${note.id === activeId ? "bg-bg-subtle" : ""}`}
             >
               <span className="flex items-center gap-2 text-xs text-text">
                 <span className="min-w-0 flex-1 truncate">{note.title || "Untitled note"}</span>
@@ -266,13 +273,16 @@ export function NotesTab() {
         {picking ? <NotePicker onClose={() => setPicking(false)} /> : null}
       </div>
 
-      <input
-        value={active.title}
-        onChange={(event) => useNotesStore.getState().edit({ title: event.target.value })}
-        onBlur={() => void useNotesStore.getState().flush()}
-        placeholder="Untitled note"
-        className="border-b border-border bg-transparent px-3 py-2 text-sm font-semibold text-text outline-none placeholder:text-text-weak"
-      />
+      <div className="flex items-center gap-2 border-b border-border pl-3">
+        <GatherToggle itemKey={`note:${active.id}`} make={() => noteItem(active)} always />
+        <input
+          value={active.title}
+          onChange={(event) => useNotesStore.getState().edit({ title: event.target.value })}
+          onBlur={() => void useNotesStore.getState().flush()}
+          placeholder="Untitled note"
+          className="min-w-0 flex-1 bg-transparent py-2 pr-3 text-sm font-semibold text-text outline-none placeholder:text-text-weak"
+        />
+      </div>
 
       <div className="relative flex items-center gap-1 px-2 py-1 text-[11px]">
         {MODES.map((entry) => (

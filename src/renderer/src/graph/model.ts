@@ -2,7 +2,7 @@ import type { EdgeKind, LinksGraph } from "@shared/types";
 import { labelsFor, pathKey } from "@shared/docLabel";
 import { isWebUrl, webHost } from "@shared/webPassage";
 
-export type NodeKind = "concept" | "passage";
+export type NodeKind = "concept" | "passage" | "card";
 
 export interface GraphNode {
   id: string;
@@ -15,12 +15,15 @@ export interface GraphNode {
   /** Web excerpts: the page title. */
   title?: string;
   stale?: boolean;
+  /** Cards only: the flashcard (node ids are `card:<id>`) and its answer. */
+  cardId?: string;
+  answer?: string;
   /** Index into the document palette; concepts use -1. */
   colorIndex: number;
   degree: number;
 }
 
-export type GraphLinkKind = EdgeKind | "co";
+export type GraphLinkKind = EdgeKind | "co" | "card";
 
 export interface GraphLink {
   id: string;
@@ -55,6 +58,33 @@ export interface BuildOptions {
   focusHops?: number;
   /** Keep only these node ids (e.g. a local subgraph). */
   only?: ReadonlySet<string> | null;
+  /** Flashcards to draw next to the concepts they belong to. */
+  cards?: readonly GraphCard[];
+}
+
+export interface GraphCard {
+  id: string;
+  question: string;
+  answer: string;
+  conceptIds?: readonly string[];
+}
+
+export function cardNodeId(cardId: string): string {
+  return `card:${cardId}`;
+}
+
+/** Card nodes for the concepts on screen, each tied to every concept it belongs to. */
+function cardNodes(cards: readonly GraphCard[], conceptIds: ReadonlySet<string>): { nodes: GraphNode[]; links: GraphLink[] } {
+  const nodes: GraphNode[] = [];
+  const links: GraphLink[] = [];
+  for (const card of cards) {
+    const concepts = (card.conceptIds ?? []).filter((id) => conceptIds.has(id));
+    if (concepts.length === 0) continue;
+    const id = cardNodeId(card.id);
+    nodes.push({ id, kind: "card", label: passageLabel(card.question), quote: card.question, answer: card.answer, cardId: card.id, colorIndex: -1, degree: 0 });
+    for (const conceptId of concepts) links.push({ id: `${id}>${conceptId}`, source: conceptId, target: id, kind: "card", weight: 1 });
+  }
+  return { nodes, links };
 }
 
 /** What a passage is coloured and filtered by: its document, or for web excerpts its site. */
@@ -207,6 +237,13 @@ export function buildGraphData(graph: LinksGraph, options: BuildOptions = {}): G
     ];
     const ids = new Set(nodes.map((node) => node.id));
     links = rawLinks(graph).filter((link) => ids.has(link.source) && ids.has(link.target));
+  }
+
+  if (options.cards && options.cards.length > 0) {
+    const shown = new Set(nodes.filter((node) => node.kind === "concept").map((node) => node.id));
+    const extra = cardNodes(options.cards, shown);
+    nodes = [...nodes, ...extra.nodes];
+    links = [...links, ...extra.links];
   }
 
   let keep: Set<string> | null = options.only ? new Set(options.only) : null;

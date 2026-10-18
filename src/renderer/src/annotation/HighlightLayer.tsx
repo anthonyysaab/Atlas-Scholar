@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Annotation } from "@shared/types";
+import { passageItem } from "@renderer/gather/items";
+import { useGatherStore } from "@renderer/gather/store";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { toast } from "@renderer/state/toastStore";
@@ -176,6 +178,15 @@ export function HighlightLayer() {
     setToolbarPos(null);
   }, []);
 
+  const gatherSelection = useCallback((selection: DocSelection) => {
+    const added = useGatherStore.getState().add([passageItem(selection)]);
+    toast.success(added > 0 ? "Passage selected · make cards, ask or link from the selection bar" : "That passage is already selected");
+    window.getSelection()?.removeAllRanges();
+    emitSelection(null);
+    setPendingSelection(null);
+    setToolbarPos(null);
+  }, []);
+
   const copySelection = useCallback(async (selection: DocSelection, cite: boolean) => {
     const name = useAppStore.getState().docs.find((entry) => entry.ref.path === selection.docPath)?.ref.name ?? "";
     const text = cite ? pdfCitation(selection.text, name, selection.page) : selection.text;
@@ -287,6 +298,13 @@ export function HighlightLayer() {
           void createHighlight(selection);
         }
       }
+      if ((event.key === "s" || event.key === "S") && !typing) {
+        const selection = selectionRef.current;
+        if (selection && selection.kind === "pdf" && selection.rects.length > 0 && selection.text.trim()) {
+          event.preventDefault();
+          gatherSelection(selection);
+        }
+      }
       if ((event.key === "l" || event.key === "L") && !typing) {
         const selection = selectionRef.current;
         if (selection && selection.kind === "pdf" && selection.rects.length > 0 && selection.text.trim()) {
@@ -297,7 +315,7 @@ export function HighlightLayer() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createHighlight, linkFromSelection]);
+  }, [createHighlight, linkFromSelection, gatherSelection]);
 
   return (
     <>
@@ -353,6 +371,15 @@ export function HighlightLayer() {
             className="border-l border-border px-2 py-1 hover:bg-bg-subtle disabled:opacity-40"
           >
             Link… L
+          </button>
+          <button
+            type="button"
+            onClick={() => gatherSelection(pendingSelection)}
+            disabled={!pendingSelection.text.trim()}
+            title="Add to the selection, to make cards, ask the chat, take a note or link it together with other items"
+            className="border-l border-border px-2 py-1 hover:bg-bg-subtle disabled:opacity-40"
+          >
+            Select S
           </button>
         </div>
       ) : null}

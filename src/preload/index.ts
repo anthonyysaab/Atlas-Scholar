@@ -285,6 +285,7 @@ const flashcardsApi: FlashcardsApi = {
   },
   cards: {
     list: (deckId) => invoke<Flashcard[]>(IPC.flashcards.cardsList, deckId),
+    all: () => invoke<Flashcard[]>(IPC.flashcards.cardsAll),
     add: (deckId, drafts) => invoke<Flashcard[]>(IPC.flashcards.cardsAdd, deckId, drafts),
     update: (id, patch) => invoke<Flashcard>(IPC.flashcards.cardsUpdate, id, patch),
     remove: (id) => invoke<void>(IPC.flashcards.cardsRemove, id),

@@ -4,7 +4,7 @@ import type { ConceptTarget, LinkAssistRequest, LinkAssistTurn, LinkInput, LinkS
 import { emitToRenderer } from "@main/events";
 import { getSettings } from "@main/config/settings";
 import { onLibrarySwitch, requireLibrary } from "@main/library/context";
-import { getAnnotationStore, getLinksStore } from "@main/library/scopedStores";
+import { getAnnotationStore, getFlashcardStore, getLinksStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import {
   cancelAllExtractions,
@@ -201,10 +201,19 @@ export function registerLinksIpc(): void {
   handle(ipc.conceptsUpdate, (id: unknown, patch: unknown) =>
     getLinksStore().updateConcept(requireString(id, "concept id"), parseConceptPatch(patch))
   );
-  handle(ipc.conceptsMerge, (intoId: unknown, fromIds: unknown) =>
-    getLinksStore().mergeConcepts(requireString(intoId, "concept id"), parseIds(fromIds))
-  );
-  handle(ipc.conceptsRemove, (id: unknown) => getLinksStore().removeConcept(requireString(id, "concept id")));
+  // Cards point at concepts by id, so they follow a merge and let go of a deleted concept.
+  handle(ipc.conceptsMerge, async (intoId: unknown, fromIds: unknown) => {
+    const into = requireString(intoId, "concept id");
+    const from = parseIds(fromIds);
+    const merged = await getLinksStore().mergeConcepts(into, from);
+    await getFlashcardStore().replaceConcepts(from, into);
+    return merged;
+  });
+  handle(ipc.conceptsRemove, async (id: unknown) => {
+    const conceptId = requireString(id, "concept id");
+    await getLinksStore().removeConcept(conceptId);
+    await getFlashcardStore().replaceConcepts([conceptId], null);
+  });
   handle(ipc.link, (inputs: unknown) => getLinksStore().link(parseLinkInputs(inputs)));
   handle(ipc.unlink, (edgeId: unknown) => getLinksStore().unlink(requireString(edgeId, "edge id")));
   handle(ipc.passagesRemove, (id: unknown) => getLinksStore().removePassage(requireString(id, "passage id")));

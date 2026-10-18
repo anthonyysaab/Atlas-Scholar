@@ -1,12 +1,12 @@
 import { dialog } from "electron";
 import { writeFile } from "node:fs/promises";
 import { IPC } from "@shared/channels";
-import type { CardDraft, FlashcardSource, GenerateCardsInput, ReviewGrade } from "@shared/types";
+import type { CardDraft, CardPassage, CardPatch, GenerateCardsInput, ReviewGrade } from "@shared/types";
 import { getFlashcardStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 import { deckToAnkiTsv } from "@main/study/anki";
-import { parseSource } from "@main/study/flashcards";
+import { parseConceptIds, parseSource } from "@main/study/flashcards";
 import { buildGenerateMessages, clampMaxCards, parseGeneratedCards } from "@main/study/generate";
 import { handle } from "./registry";
 
@@ -27,15 +27,40 @@ function parseDrafts(value: unknown): CardDraft[] {
     const answer = asString(record?.["answer"]);
     if (question === undefined || answer === undefined) return [];
     const source = parseSource(record?.["source"]);
-    return [{ question, answer, ...(source ? { source } : {}) }];
+    const conceptIds = parseConceptIds(record?.["conceptIds"]);
+    return [{ question, answer, ...(source ? { source } : {}), ...(conceptIds ? { conceptIds } : {}) }];
   });
 }
 
-function parsePatch(value: unknown): { question?: string; answer?: string } {
+function parsePatch(value: unknown): CardPatch {
   const record = asRecord(value);
   const question = asString(record?.["question"]);
   const answer = asString(record?.["answer"]);
-  return { ...(question !== undefined ? { question } : {}), ...(answer !== undefined ? { answer } : {}) };
+  const hasConcepts = Array.isArray(record?.["conceptIds"]);
+  return {
+    ...(question !== undefined ? { question } : {}),
+    ...(answer !== undefined ? { answer } : {}),
+    ...(hasConcepts ? { conceptIds: parseConceptIds(record?.["conceptIds"]) ?? [] } : {})
+  };
+}
+
+const MAX_LABEL_CHARS = 200;
+
+function parsePassage(value: unknown): CardPassage | null {
+  const record = asRecord(value);
+  const text = asString(record?.["text"])?.trim();
+  if (!text) return null;
+  const docPath = asString(record?.["docPath"]);
+  const page = asNumber(record?.["page"]);
+  const label = asString(record?.["label"])?.trim().slice(0, MAX_LABEL_CHARS);
+  const conceptIds = parseConceptIds(record?.["conceptIds"]);
+  return {
+    text,
+    ...(docPath ? { docPath } : {}),
+    ...(page !== undefined && Number.isInteger(page) && page > 0 ? { page } : {}),
+    ...(label ? { label } : {}),
+    ...(conceptIds ? { conceptIds } : {})
+  };
 }
 
 function parseGrade(value: unknown): ReviewGrade {
@@ -46,9 +71,9 @@ function parseGrade(value: unknown): ReviewGrade {
 
 function parseGenerateInput(value: unknown): GenerateCardsInput {
   const record = asRecord(value);
-  const passages = asArray(record?.["passages"]).flatMap((entry): FlashcardSource[] => {
-    const source = parseSource(entry);
-    return source && source.text.trim() ? [source] : [];
+  const passages = asArray(record?.["passages"]).flatMap((entry): CardPassage[] => {
+    const passage = parsePassage(entry);
+    return passage ? [passage] : [];
   });
   if (passages.length === 0) throw new Error("Add at least one passage to generate cards from");
   const maxCards = asNumber(record?.["maxCards"]);
@@ -105,6 +130,7 @@ export function registerFlashcardsIpc(): void {
   );
   handle(ipc.decksRemove, (id: unknown) => getStore().removeDeck(requireString(id, "deck id")));
   handle(ipc.cardsList, (deckId: unknown) => getStore().listCards(requireString(deckId, "deck id")));
+  handle(ipc.cardsAll, () => getStore().listAllCards());
   handle(ipc.cardsAdd, (deckId: unknown, drafts: unknown) =>
     getStore().addCards(requireString(deckId, "deck id"), parseDrafts(drafts))
   );

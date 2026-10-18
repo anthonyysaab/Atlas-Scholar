@@ -329,8 +329,8 @@ export function GraphCanvas({
           const point = localPoint(event);
           const node = hitTest(nodesRef.current, transformRef.current, point.x, point.y);
           if (!node) return;
-          if (node.kind === "passage") onOpen(node);
-          else onFocus?.(node);
+          if (node.kind === "concept") onFocus?.(node);
+          else onOpen(node);
         }}
       />
       {tooltip ? (
@@ -347,6 +347,12 @@ export function GraphCanvas({
               <div className="text-text-weak">
                 {tooltip.node.degree} link{tooltip.node.degree === 1 ? "" : "s"} · click to select · double-click to focus
               </div>
+            </>
+          ) : tooltip.node.kind === "card" ? (
+            <>
+              <div className="text-text-weak">Flashcard</div>
+              <MarkdownPreview content={tooltip.node.quote ?? ""} lines={4} />
+              <div className="mt-0.5 text-[10px] text-text-weak">double-click to open in Cards</div>
             </>
           ) : (
             <>

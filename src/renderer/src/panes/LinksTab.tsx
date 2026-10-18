@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { shortDocLabel } from "@shared/docLabel";
 import { EmptyState } from "@renderer/components/EmptyState";
 import { Icon } from "@renderer/components/Icon";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { conceptItem } from "@renderer/gather/items";
 import { linkSelection, openConceptGraph } from "@renderer/links/actions";
 import { ConceptDetail } from "@renderer/links/ConceptDetail";
 import { LinkChatBar } from "@renderer/links/LinkChatBar";
@@ -89,18 +91,21 @@ export function LinksTab() {
                 const open = selectedConceptId === concept.id;
                 const otherDocs = new Set(elsewhere.map((entry) => entry.passage.docPath.toLowerCase())).size;
                 return (
-                  <li key={concept.id} className={`rounded border ${open ? "border-accent/60 bg-bg" : "border-transparent"}`}>
-                    <button
-                      type="button"
-                      onClick={() => useLinksStore.getState().select(open ? null : concept.id)}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-panel"
-                    >
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
-                      <span className="min-w-0 flex-1 truncate text-text">{concept.name}</span>
-                      <span className="shrink-0 text-[10px] text-text-weak" title="Passages here · in other documents">
-                        {here.length} here{elsewhere.length > 0 ? ` · ${elsewhere.length} in ${otherDocs} other` : ""}
-                      </span>
-                    </button>
+                  <li key={concept.id} className={`group/row rounded border ${open ? "border-accent/60 bg-bg" : "border-transparent"}`}>
+                    <div className="flex items-center gap-1 pl-1">
+                      <GatherToggle itemKey={`concept:${concept.id}`} make={() => conceptItem(concept)} />
+                      <button
+                        type="button"
+                        onClick={() => useLinksStore.getState().select(open ? null : concept.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1 text-left text-xs hover:bg-panel"
+                      >
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
+                        <span className="min-w-0 flex-1 truncate text-text">{concept.name}</span>
+                        <span className="shrink-0 text-[10px] text-text-weak" title="Passages here · in other documents">
+                          {here.length} here{elsewhere.length > 0 ? ` · ${elsewhere.length} in ${otherDocs} other` : ""}
+                        </span>
+                      </button>
+                    </div>
                     {open ? (
                       <div className="px-2 pb-2">
                         <ConceptDetail concept={concept} currentDocPath={docPath} />

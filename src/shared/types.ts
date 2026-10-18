@@ -685,6 +685,8 @@ export interface Flashcard extends CardSchedule {
   question: string;
   answer: string;
   source?: FlashcardSource;
+  /** Concepts of the links graph this card belongs to; ids of deleted concepts are dropped. */
+  conceptIds?: string[];
   createdAt: string;
 }
 
@@ -695,12 +697,32 @@ export interface CardDraft {
   question: string;
   answer: string;
   source?: FlashcardSource;
+  conceptIds?: string[];
+}
+
+export interface CardPatch {
+  question?: string;
+  answer?: string;
+  /** Replaces the card's concepts; `[]` unlinks them all. */
+  conceptIds?: string[];
+}
+
+/**
+ * Text to write cards from. Passages from a document carry `docPath` (and become the card's
+ * source); notes, chat answers and concepts have none. `label` tells the model what it is.
+ */
+export interface CardPassage {
+  text: string;
+  docPath?: string;
+  page?: number;
+  label?: string;
+  conceptIds?: string[];
 }
 
 export interface GenerateCardsInput {
   providerId: string;
   model: string;
-  passages: FlashcardSource[];
+  passages: CardPassage[];
   /** Upper bound on cards; the model decides how many the passages support. */
   maxCards?: number;
 }
@@ -716,8 +738,10 @@ export interface FlashcardsApi {
   };
   cards: {
     list(deckId: string): Promise<Flashcard[]>;
+    /** Every card of every deck, e.g. to show the cards of a concept. */
+    all(): Promise<Flashcard[]>;
     add(deckId: string, drafts: CardDraft[]): Promise<Flashcard[]>;
-    update(id: string, patch: { question?: string; answer?: string }): Promise<Flashcard>;
+    update(id: string, patch: CardPatch): Promise<Flashcard>;
     remove(id: string): Promise<void>;
     /** Grade a review and reschedule the card. */
     review(id: string, grade: ReviewGrade): Promise<Flashcard>;

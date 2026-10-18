@@ -57,6 +57,12 @@ export function Composer() {
   };
 
   useEffect(() => {
+    const focus = (): void => textareaRef.current?.focus();
+    window.addEventListener("ra:composer-focus", focus);
+    return () => window.removeEventListener("ra:composer-focus", focus);
+  }, []);
+
+  useEffect(() => {
     window.addEventListener("ra:composer-send", submit);
     return () => window.removeEventListener("ra:composer-send", submit);
   });
@@ -91,9 +97,9 @@ export function Composer() {
             type="button"
             onClick={addSelectionToFlashcards}
             className="shrink-0 rounded border border-border px-1.5 py-px text-[11px] text-text-weak hover:text-text"
-            title="Queue this passage to generate flashcards from it"
+            title="Add this passage to the selection, to make cards or link it with other items"
           >
-            + Card
+            + Select
           </button>
         </div>
       ) : null}

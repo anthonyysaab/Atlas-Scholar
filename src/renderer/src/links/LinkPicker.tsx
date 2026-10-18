@@ -34,8 +34,11 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
   const passage = request.passage;
-  const passages = useMemo(() => [request.passage, ...(request.extraPassages ?? [])], [request]);
-  const many = passages.length > 1;
+  const passages = useMemo(
+    () => (request.passage ? [request.passage, ...(request.extraPassages ?? [])] : []),
+    [request]
+  );
+  const many = passages.length > 1 || request.summary !== undefined;
 
   const conceptOptions = useMemo((): Option[] => {
     const trimmed = query.trim();
@@ -58,9 +61,9 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
 
   useEffect(() => {
     let cancelled = false;
-    const text = (query.trim() || passage.quote).slice(0, 1500);
+    const text = (query.trim() || passage?.quote || "").slice(0, 1500);
     // Several passages go to one concept; a passage-to-passage link only makes sense for one.
-    if (!text.trim() || many) return;
+    if (!passage || !text.trim() || many) return;
     setSearching(true);
     const timer = setTimeout(() => {
       window.api.rag
@@ -83,7 +86,7 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, passage.docPath, passage.quote, many]);
+  }, [query, passage, many]);
 
   const options = useMemo(
     () => [...conceptOptions, ...hits.map((hit): Option => ({ kind: "passage", hit }))],
@@ -100,7 +103,19 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
     const base = { source: request.source ?? "manual", ...(request.origin ? { origin: request.origin } : {}) } as const;
     let input: LinkInput;
     let label: string;
+    if (option.kind !== "passage" && passages.length === 0) {
+      try {
+        const conceptId =
+          option.kind === "concept" ? option.concept.id : (await window.api.links.concepts.create({ name: option.name })).id;
+        request.onLinked?.(conceptId);
+        onDone();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
     if (option.kind === "passage") {
+      if (!passage) return;
       const hit = option.hit;
       input = {
         ...base,
@@ -123,7 +138,7 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
         if (!results) return;
         conceptId ??= results.find((result) => result.concept)?.concept?.id;
       }
-      toast.success(many ? `Linked ${passages.length} passages to ${label}` : `Linked to ${label}`);
+      toast.success(passages.length > 1 ? `Linked ${passages.length} passages to ${label}` : `Linked to ${label}`);
       if (conceptId) request.onLinked?.(conceptId);
       onDone();
       return;
@@ -139,11 +154,17 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
   return (
     <div className="flex flex-col gap-2 p-3">
       <div className="rounded border border-border bg-bg-subtle px-2 py-1.5 text-[12px] text-text-weak">
-        <div className="mb-0.5 truncate text-[10px] uppercase tracking-wide" title={passage.docPath}>
-          {many ? `${passages.length} passages · ` : ""}
-          {shortDocLabel(passage.docPath)}
-          {!many && passage.page !== undefined ? ` · p.${passage.page}` : ""}
-          {passage.title ? ` · ${passage.title}` : ""}
+        <div className="mb-0.5 truncate text-[10px] uppercase tracking-wide" title={passage?.docPath}>
+          {request.summary ? (
+            request.summary.title
+          ) : passage ? (
+            <>
+              {many ? `${passages.length} passages · ` : ""}
+              {shortDocLabel(passage.docPath)}
+              {!many && passage.page !== undefined ? ` · p.${passage.page}` : ""}
+              {passage.title ? ` · ${passage.title}` : ""}
+            </>
+          ) : null}
         </div>
         {many ? (
           <ul className="max-h-28 space-y-0.5 overflow-y-auto">
@@ -153,10 +174,16 @@ function PickerBody({ request, onDone }: { request: LinkPickerRequest; onDone: (
                 {entry.quote}
               </li>
             ))}
+            {(request.summary?.lines ?? []).map((line, index) => (
+              <li key={`s${index}`} className="truncate text-text">
+                <span className="text-text-weak">card · </span>
+                {line}
+              </li>
+            ))}
           </ul>
-        ) : (
+        ) : passage ? (
           <MarkdownPreview content={passage.quote} lines={3} className="text-text" />
-        )}
+        ) : null}
       </div>
       <input
         data-autofocus
@@ -253,7 +280,7 @@ export function LinkPicker() {
     <Modal
       open={request !== null}
       onClose={close}
-      title={request?.extraPassages?.length ? "Link passages to a concept" : "Link passage"}
+      title={request?.summary || request?.extraPassages?.length ? "Link to a concept" : "Link passage"}
       width="560px"
     >
       {request ? <PickerBody request={request} onDone={close} /> : null}

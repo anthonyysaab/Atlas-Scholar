@@ -51,7 +51,7 @@ export function CommandPalette() {
         }
       },
       { id: "flashcards", label: "Switch to Flashcards", run: () => void switchPanelTab("flashcards") },
-      { id: "card", label: "Add selection to flashcards (/card)", run: () => addSelectionToFlashcards() },
+      { id: "card", label: "Add the document selection to the selection bar (S, /card)", run: () => addSelectionToFlashcards() },
       { id: "context", label: "Switch to Context", run: () => void switchPanelTab("context") },
       { id: "links", label: "Switch to Links (Ctrl+5)", run: () => void switchPanelTab("links") },
       { id: "graph", label: "Open concept graph (Ctrl+G)", run: () => openConceptGraph() },

@@ -133,7 +133,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     run: () => setScope(useSettingsStore.getState().settings?.chat.scope === "library" ? "document" : "library")
   },
   { command: "/study", description: "Toggle study mode for this thread (guided tutoring)", surfaces: ["chat"], run: withDoc(toggleStudy) },
-  { command: "/card", description: "Add the selected passage to flashcard generation", surfaces: ["chat"], run: () => addSelectionToFlashcards() },
+  { command: "/card", description: "Add the selected passage to the selection, to make cards from it", surfaces: ["chat"], run: () => addSelectionToFlashcards() },
   { command: "/link", description: "Link the selected passage to a concept or another PDF", surfaces: ["chat"], run: () => linkSelection() },
   {
     command: "/graph",

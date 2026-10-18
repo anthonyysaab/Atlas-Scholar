@@ -612,11 +612,16 @@ interface Flashcard extends CardSchedule {
   id: string; deckId: string
   question: string; answer: string   // Markdown + $...$ math
   source?: FlashcardSource           // absent for hand-written cards
+  conceptIds?: string[]              // concepts of the links graph (§1.12) the card belongs to
   createdAt: string
 }
 type ReviewGrade = "again" | "hard" | "good" | "easy"
-interface CardDraft { question: string; answer: string; source?: FlashcardSource }
-interface GenerateCardsInput { providerId: string; model: string; passages: FlashcardSource[]; maxCards?: number }
+interface CardDraft { question: string; answer: string; source?: FlashcardSource; conceptIds?: string[] }
+interface CardPatch { question?: string; answer?: string; conceptIds?: string[] }   // conceptIds replaces; [] unlinks all
+// Text to write cards from. docPath (+ page) makes it the card's source; notes, chat answers and
+// concepts have none. label tells the model what it is; conceptIds are copied onto the cards.
+interface CardPassage { text: string; docPath?: string; page?: number; label?: string; conceptIds?: string[] }
+interface GenerateCardsInput { providerId: string; model: string; passages: CardPassage[]; maxCards?: number }
 
 interface FlashcardsApi {
   decks: {
@@ -627,8 +632,9 @@ interface FlashcardsApi {
   }
   cards: {
     list(deckId: string): Promise<Flashcard[]>
+    all(): Promise<Flashcard[]>                       // every deck; e.g. a concept's cards, card nodes in the graph
     add(deckId: string, drafts: CardDraft[]): Promise<Flashcard[]>
-    update(id: string, patch: { question?: string; answer?: string }): Promise<Flashcard>
+    update(id: string, patch: CardPatch): Promise<Flashcard>
     remove(id: string): Promise<void>
     review(id: string, grade: ReviewGrade): Promise<Flashcard>   // reschedules in main
   }
@@ -639,6 +645,10 @@ interface FlashcardsApi {
 
 `generate` asks the model for strict JSON (`{"cards": [{question, answer, passage}]}`), tolerates
 `<think>` blocks and code fences, drops duplicates, and caps at `maxCards` (default 20, max 50).
+
+Cards point at concepts by id: `links.concepts.merge` moves them onto the surviving concept and
+`links.concepts.remove` drops the id, both in main. The renderer also adds the existing concepts a
+card names with `[[...]]` when it is saved (no concept is created for an unknown name).
 
 ### 1.12 `LinksApi` (06-concept-graph)
 

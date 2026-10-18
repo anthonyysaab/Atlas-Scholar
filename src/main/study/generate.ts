@@ -1,4 +1,4 @@
-import type { CardDraft, ChatMessage, FlashcardSource } from "@shared/types";
+import type { CardDraft, CardPassage, ChatMessage, FlashcardSource } from "@shared/types";
 import { extractJsonReply, repairLatexEscapes } from "@main/llm/jsonReply";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 
@@ -23,15 +23,16 @@ const RULES = [
 ];
 
 /** Prompt the model with numbered passages; long passages are trimmed to keep the request bounded. */
-export function buildGenerateMessages(passages: FlashcardSource[], maxCards: number): ChatMessage[] {
+export function buildGenerateMessages(passages: CardPassage[], maxCards: number): ChatMessage[] {
   let used = 0;
   const blocks: string[] = [];
   passages.forEach((passage, index) => {
     if (used >= MAX_TOTAL_CHARS) return;
     const text = passage.text.trim().slice(0, Math.min(MAX_PASSAGE_CHARS, MAX_TOTAL_CHARS - used));
     used += text.length;
-    const where = passage.page !== undefined ? ` (p.${passage.page})` : "";
-    blocks.push(`Passage ${index + 1}${where}:\n"""\n${text}\n"""`);
+    const where = [passage.label, passage.page !== undefined ? `p.${passage.page}` : ""].filter(Boolean).join(", ");
+    const header = where ? ` (${where.replace(/\s+/g, " ")})` : "";
+    blocks.push(`Passage ${index + 1}${header}:\n"""\n${text}\n"""`);
   });
   return [
     { role: "system", content: RULES.join("\n") },
@@ -41,7 +42,12 @@ export function buildGenerateMessages(passages: FlashcardSource[], maxCards: num
 
 export { repairLatexEscapes };
 
-export function parseGeneratedCards(reply: string, passages: FlashcardSource[], maxCards: number): CardDraft[] {
+function sourceOf(passage: CardPassage): FlashcardSource | undefined {
+  if (!passage.docPath) return undefined;
+  return { docPath: passage.docPath, text: passage.text, ...(passage.page !== undefined ? { page: passage.page } : {}) };
+}
+
+export function parseGeneratedCards(reply: string, passages: CardPassage[], maxCards: number): CardDraft[] {
   const parsed = extractJsonReply(reply, {
     empty: "The model did not return any cards.",
     invalid: "The model's reply was not valid JSON. Try again, or use a larger model."
@@ -58,8 +64,10 @@ export function parseGeneratedCards(reply: string, passages: FlashcardSource[], 
     if (seen.has(key)) continue;
     seen.add(key);
     const passageIndex = (asNumber(record?.["passage"]) ?? (passages.length === 1 ? 1 : 0)) - 1;
-    const source = passages[passageIndex];
-    drafts.push({ question, answer, ...(source ? { source } : {}) });
+    const passage = passages[passageIndex];
+    const source = passage ? sourceOf(passage) : undefined;
+    const conceptIds = passage?.conceptIds;
+    drafts.push({ question, answer, ...(source ? { source } : {}), ...(conceptIds?.length ? { conceptIds } : {}) });
     if (drafts.length >= maxCards) break;
   }
   if (drafts.length === 0) throw new Error("The model did not return any usable cards.");

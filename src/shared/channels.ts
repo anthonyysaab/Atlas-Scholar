@@ -93,6 +93,7 @@ export const IPC = {
     decksRename: "flashcards:decks:rename",
     decksRemove: "flashcards:decks:remove",
     cardsList: "flashcards:cards:list",
+    cardsAll: "flashcards:cards:all",
     cardsAdd: "flashcards:cards:add",
     cardsUpdate: "flashcards:cards:update",
     cardsRemove: "flashcards:cards:remove",

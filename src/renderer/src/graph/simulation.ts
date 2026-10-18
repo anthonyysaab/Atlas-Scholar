@@ -24,6 +24,7 @@ export type GraphSimulation = Simulation<SimNode, SimLink>;
 
 export function radiusOf(node: GraphNode): number {
   if (node.kind === "passage") return 4;
+  if (node.kind === "card") return 3.5;
   return Math.min(18, 6 + Math.sqrt(node.degree) * 2.6);
 }
 
@@ -63,7 +64,7 @@ export function createSimulation(compact: boolean): GraphSimulation {
       "link",
       forceLink<SimNode, SimLink>([])
         .id((node) => node.id)
-        .distance((link) => (link.kind === "related" ? 70 : link.kind === "co" ? 90 : compact ? 30 : 42))
+        .distance((link) => (link.kind === "related" ? 70 : link.kind === "co" ? 90 : link.kind === "card" ? 24 : compact ? 30 : 42))
         .strength((link) => (link.kind === "co" ? Math.min(0.6, 0.15 * link.weight) : 0.5))
     )
     .force("charge", forceManyBody<SimNode>().strength(compact ? -45 : -70).distanceMax(compact ? 250 : 420))

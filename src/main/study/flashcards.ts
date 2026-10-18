@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { CardDraft, Deck, Flashcard, FlashcardSource, ReviewGrade } from "@shared/types";
+import type { CardDraft, CardPatch, Deck, Flashcard, FlashcardSource, ReviewGrade } from "@shared/types";
 import { newSchedule, schedule, START_EASE } from "@shared/srs";
 import { writeJsonAtomic } from "@main/library/atomic";
 import { IDENTITY_CODEC, pathMover, type PathCodec, type PathMove } from "@main/library/paths";
@@ -31,6 +31,21 @@ export function parseSource(value: unknown): FlashcardSource | undefined {
   };
 }
 
+const MAX_CONCEPTS_PER_CARD = 50;
+
+/** Distinct, non-empty concept ids; `undefined` when there are none. */
+export function parseConceptIds(value: unknown): string[] | undefined {
+  const ids = [...new Set(asArray(value).flatMap((entry) => (typeof entry === "string" && entry.trim() ? [entry.trim()] : [])))];
+  return ids.length > 0 ? ids.slice(0, MAX_CONCEPTS_PER_CARD) : undefined;
+}
+
+function withConcepts<T extends { conceptIds?: string[] }>(card: T, ids: string[] | undefined): T {
+  const next = { ...card };
+  if (ids && ids.length > 0) next.conceptIds = ids;
+  else delete next.conceptIds;
+  return next;
+}
+
 function parseDeck(value: unknown): Deck | null {
   const record = asRecord(value);
   const id = asString(record?.["id"]);
@@ -50,12 +65,14 @@ function parseCard(value: unknown): Flashcard | null {
   if (!id || !deckId || question === undefined || answer === undefined || !createdAt) return null;
   const due = asString(record?.["due"]);
   const source = parseSource(record?.["source"]);
+  const conceptIds = parseConceptIds(record?.["conceptIds"]);
   return {
     id,
     deckId,
     question,
     answer,
     ...(source ? { source } : {}),
+    ...(conceptIds ? { conceptIds } : {}),
     createdAt,
     due: due && !Number.isNaN(Date.parse(due)) ? due : createdAt,
     interval: Math.max(0, asNumber(record?.["interval"]) ?? 0),
@@ -187,6 +204,10 @@ export class FlashcardStore {
     return (await this.snapshot()).cards.filter((card) => card.deckId === deckId);
   }
 
+  async listAllCards(): Promise<Flashcard[]> {
+    return (await this.snapshot()).cards;
+  }
+
   addCards(deckId: string, drafts: CardDraft[]): Promise<Flashcard[]> {
     return this.mutate((data) => {
       if (!data.decks.some((deck) => deck.id === deckId)) throw new Error("Deck not found");
@@ -195,6 +216,7 @@ export class FlashcardStore {
         const question = cleanText(draft.question);
         const answer = cleanText(draft.answer);
         if (!question || !answer) return [];
+        const conceptIds = parseConceptIds(draft.conceptIds);
         return [
           {
             id: randomUUID(),
@@ -202,6 +224,7 @@ export class FlashcardStore {
             question,
             answer,
             ...(draft.source ? { source: draft.source } : {}),
+            ...(conceptIds ? { conceptIds } : {}),
             createdAt: now.toISOString(),
             ...newSchedule(now)
           }
@@ -212,13 +235,30 @@ export class FlashcardStore {
     });
   }
 
-  updateCard(id: string, patch: { question?: string; answer?: string }): Promise<Flashcard> {
+  updateCard(id: string, patch: CardPatch): Promise<Flashcard> {
     return this.mutate((data) => {
-      const card = data.cards.find((entry) => entry.id === id);
+      const index = data.cards.findIndex((entry) => entry.id === id);
+      let card = data.cards[index];
       if (!card) throw new Error("Card not found");
       if (patch.question !== undefined && cleanText(patch.question)) card.question = cleanText(patch.question);
       if (patch.answer !== undefined && cleanText(patch.answer)) card.answer = cleanText(patch.answer);
+      if (patch.conceptIds !== undefined) {
+        card = withConcepts(card, parseConceptIds(patch.conceptIds));
+        data.cards[index] = card;
+      }
       return { ...card };
+    });
+  }
+
+  /** Keep cards on the concept their concepts were merged into, or drop a deleted concept. */
+  replaceConcepts(fromIds: readonly string[], intoId: string | null): Promise<void> {
+    const from = new Set(fromIds);
+    return this.mutate((data) => {
+      data.cards = data.cards.map((card) => {
+        if (!card.conceptIds?.some((id) => from.has(id))) return card;
+        const kept = card.conceptIds.filter((id) => !from.has(id));
+        return withConcepts(card, intoId ? [...new Set([...kept, intoId])] : kept);
+      });
     });
   }
 

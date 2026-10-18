@@ -78,7 +78,7 @@ is the whole app; the numbered folders are plans, the app lives at the root):
 - Build: `npm run build` (electron-vite build → `out/{main,preload,renderer}`)
 - Typecheck: `npm run typecheck` (node + web projects, `tsc --noEmit`)
 - Lint: `npm run lint` (ESLint flat config)
-- Test: `npm test` (vitest run, 468 tests; `npm run test:watch` for watch)
+- Test: `npm test` (vitest run, 476 tests; `npm run test:watch` for watch)
 - E2E: `npm run test:e2e` (build + Playwright `_electron`; `RA_USER_DATA_DIR` and `RA_LIBRARY_DIR`
   point the app at a throwaway profile and library folder)
 - Icons: `npm run icons` (regenerate `build/icon.png` + `build/icon.ico`; committed, optional)

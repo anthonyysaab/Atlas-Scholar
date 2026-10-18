@@ -1,6 +1,22 @@
+import type { PanelTab } from "@shared/types";
+import { GatherTray } from "@renderer/gather/GatherTray";
+import { useGatherCount } from "@renderer/gather/store";
 import { switchPanelTab } from "@renderer/lib/commands";
 import { getSidePanelTab, listSidePanelTabs } from "@renderer/panes/sidePanelRegistry";
 import { useSettingsStore } from "@renderer/state/settingsStore";
+
+function SelectedCount({ tab }: { tab: PanelTab }) {
+  const count = useGatherCount(tab);
+  if (count === 0) return null;
+  return (
+    <span
+      className="ml-1 inline-flex min-w-[15px] items-center justify-center rounded-full bg-accent/20 px-1 text-[9px] leading-[15px] text-accent"
+      title={`${count} selected here`}
+    >
+      {count}
+    </span>
+  );
+}
 
 export function SidePanel() {
   const panelTab = useSettingsStore((state) => state.settings?.ui.panelTab ?? "chat");
@@ -15,15 +31,17 @@ export function SidePanel() {
             key={tab.id}
             type="button"
             onClick={() => void switchPanelTab(tab.id)}
-            className={`shrink-0 rounded px-2.5 py-1 text-xs ${
+            className={`flex shrink-0 items-center rounded px-2.5 py-1 text-xs ${
               tab.id === active?.id ? "bg-panel text-text" : "text-text-weak hover:bg-panel hover:text-text"
             }`}
           >
             {tab.label}
+            <SelectedCount tab={tab.id} />
           </button>
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">{active?.render()}</div>
+      <GatherTray />
     </div>
   );
 }

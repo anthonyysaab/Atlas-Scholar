@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FindProgress, TextSearchResult } from "@shared/types";
 import { Icon } from "@renderer/components/Icon";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { searchItem } from "@renderer/gather/items";
 import { openPassage } from "@renderer/lib/openPassage";
 
 export const FIND_LIBRARY_EVENT = "ra:find-library";
@@ -138,26 +140,38 @@ export function LibraryFindResults({ query }: { query: string }) {
             </button>
             {open
               ? doc.pages.map((page) => (
-                  <button
-                    key={page.page}
-                    type="button"
-                    onClick={() =>
-                      void openPassage({ docPath: doc.docPath, ...(page.page > 0 ? { page: page.page } : {}), find: query })
-                    }
-                    className="flex w-full flex-col gap-0.5 rounded py-1 pl-6 pr-1 text-left text-[11px] hover:bg-panel"
-                  >
-                    <span className="text-text-weak">
-                      {page.page > 0 ? `p.${page.page}` : "text"}
-                      {page.hits > page.snippets.length ? ` · ${page.hits} matches` : ""}
-                    </span>
-                    {page.snippets.map((snippet, index) => (
-                      <span key={index} className="line-clamp-2 text-text-weak">
-                        {snippet.before}
-                        <b className="font-semibold text-text">{snippet.match}</b>
-                        {snippet.after}
+                  <div key={page.page} className="group/row flex items-start gap-1 pl-2">
+                    <GatherToggle
+                      itemKey={`find:${doc.docPath.toLowerCase()}#${page.page}`}
+                      make={() =>
+                        searchItem({
+                          docPath: doc.docPath,
+                          page: page.page,
+                          text: page.snippets.map((snippet) => `${snippet.before}${snippet.match}${snippet.after}`.trim()).join(" … ")
+                        })
+                      }
+                      className="mt-1.5"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void openPassage({ docPath: doc.docPath, ...(page.page > 0 ? { page: page.page } : {}), find: query })
+                      }
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 rounded py-1 pl-2 pr-1 text-left text-[11px] hover:bg-panel"
+                    >
+                      <span className="text-text-weak">
+                        {page.page > 0 ? `p.${page.page}` : "text"}
+                        {page.hits > page.snippets.length ? ` · ${page.hits} matches` : ""}
                       </span>
-                    ))}
-                  </button>
+                      {page.snippets.map((snippet, index) => (
+                        <span key={index} className="line-clamp-2 text-text-weak">
+                          {snippet.before}
+                          <b className="font-semibold text-text">{snippet.match}</b>
+                          {snippet.after}
+                        </span>
+                      ))}
+                    </button>
+                  </div>
                 ))
               : null}
           </div>

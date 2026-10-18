@@ -70,7 +70,9 @@ export function drawGraph(ctx: CanvasRenderingContext2D, state: DrawState): void
       ctx.strokeStyle = emphasis && lit ? theme.accent : theme.textWeak;
       ctx.globalAlpha = lit ? (emphasis ? 0.85 : 0.35) : 0.08;
       ctx.lineWidth = (link.kind === "co" ? Math.min(4, 0.6 + link.weight * 0.6) : 1) / Math.sqrt(transform.k);
-      ctx.setLineDash(link.kind === "related" ? [4 / transform.k, 3 / transform.k] : []);
+      ctx.setLineDash(
+        link.kind === "related" ? [4 / transform.k, 3 / transform.k] : link.kind === "card" ? [1.5 / transform.k, 2 / transform.k] : []
+      );
       ctx.stroke();
     }
   }
@@ -85,6 +87,14 @@ export function drawGraph(ctx: CanvasRenderingContext2D, state: DrawState): void
     if (node.kind === "concept") {
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
       ctx.fillStyle = theme.text;
+      ctx.fill();
+    } else if (node.kind === "card") {
+      ctx.moveTo(node.x, node.y - r * 1.3);
+      ctx.lineTo(node.x + r * 1.3, node.y);
+      ctx.lineTo(node.x, node.y + r * 1.3);
+      ctx.lineTo(node.x - r * 1.3, node.y);
+      ctx.closePath();
+      ctx.fillStyle = theme.accent;
       ctx.fill();
     } else {
       const size = r * 2;
@@ -110,7 +120,12 @@ export function drawGraph(ctx: CanvasRenderingContext2D, state: DrawState): void
     const show = node.kind === "concept" ? focused || transform.k >= state.labelZoom || (emphasis?.has(node.id) ?? false) : focused;
     if (!show) continue;
     ctx.globalAlpha = dimmed(node.id) ? 0.25 : 1;
-    const label = node.kind === "passage" && node.page !== undefined ? `p.${node.page} · ${node.label}` : node.label;
+    const label =
+      node.kind === "passage" && node.page !== undefined
+        ? `p.${node.page} · ${node.label}`
+        : node.kind === "card"
+          ? `Card · ${node.label}`
+          : node.label;
     const y = node.y + radiusOf(node) + 3 / transform.k;
     ctx.lineWidth = 3 / transform.k;
     ctx.strokeStyle = theme.bg;

@@ -8,7 +8,11 @@ import { requestCitationJump } from "@renderer/context/citationJump";
 import { ConceptChip } from "@renderer/chat/ConceptChip";
 import { RelatedRow } from "@renderer/chat/RelatedRow";
 import { splitThink } from "@renderer/chat/think";
+import { Icon } from "@renderer/components/Icon";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { chatItem } from "@renderer/gather/items";
 import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/state/chatStore";
+import { toast } from "@renderer/state/toastStore";
 
 type ThreadMessage = Thread["messages"][number];
 
@@ -49,21 +53,50 @@ ${citation.snippet}` : citation.snippet}
   );
 }
 
+function MessageActions({ thread, message, partner, isUser }: { thread: Thread; message: ThreadMessage; partner: ThreadMessage | undefined; isUser: boolean }) {
+  const copy = async (): Promise<void> => {
+    const text = isUser ? message.content : splitThink(message.content).answer;
+    try {
+      await navigator.clipboard.writeText(text.trim());
+      toast.success("Copied");
+    } catch {
+      toast.error("Could not copy to the clipboard");
+    }
+  };
+  return (
+    <div className={`flex items-center gap-1.5 px-1 text-[10px] text-text-weak ${isUser ? "flex-row-reverse" : ""}`}>
+      <GatherToggle itemKey={`chat:${message.id}`} make={() => chatItem(thread, message, partner)} className="h-3 w-3" />
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className="rounded p-0.5 opacity-0 hover:text-text focus:opacity-100 group-hover/row:opacity-100"
+        title="Copy this message"
+        aria-label="Copy this message"
+      >
+        <Icon name="copy" className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 function MessageRow({
   message,
   previous,
-  threadId,
+  next,
+  thread,
   streaming,
   docId,
   docPath
 }: {
   message: ThreadMessage;
   previous: ThreadMessage | undefined;
-  threadId: string;
+  next: ThreadMessage | undefined;
+  thread: Thread;
   streaming: boolean;
   docId: string;
   docPath: string;
 }) {
+  const threadId = thread.id;
   const isUser = message.role === "user";
   const renderConcept = useCallback(
     (name: string, children: ReactNode) => (
@@ -81,7 +114,7 @@ function MessageRow({
     : splitThink(message.content);
   const quote = message.quote;
   return (
-    <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+    <div data-message-id={message.id} className={`group/row flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`max-w-[92%] rounded-md px-2.5 py-1.5 text-[13px] leading-relaxed ${
           isUser ? "bg-panel text-text" : "bg-bg-subtle text-text"
@@ -131,6 +164,9 @@ function MessageRow({
           origin={{ threadId, messageId: message.id }}
         />
       ) : null}
+      {!streaming && message.content.trim() ? (
+        <MessageActions thread={thread} message={message} partner={isUser ? next : previous} isUser={isUser} />
+      ) : null}
     </div>
   );
 }
@@ -165,7 +201,8 @@ export function Transcript({ docId, docPath }: { docId: string; docPath: string 
             key={message.id}
             message={message}
             previous={thread.messages[index - 1]}
-            threadId={thread.id}
+            next={thread.messages[index + 1]}
+            thread={thread}
             streaming={streaming && message.id === lastMessage?.id && message.role === "assistant"}
             docId={docId}
             docPath={docPath}

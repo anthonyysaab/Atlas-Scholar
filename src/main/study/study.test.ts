@@ -104,6 +104,30 @@ describe("FlashcardStore", () => {
     expect((await store.listCards(deck.id)).every((card) => card.reps === 1)).toBe(true);
   });
 
+  it("keeps concept links on cards and follows concept merges and deletes", async () => {
+    const { store } = await tempStore();
+    const deck = await store.createDeck("Deck");
+    const [linked, plain] = await store.addCards(deck.id, [
+      { question: "Q1", answer: "A1", conceptIds: ["c1", "c1", " ", "c2"] },
+      { question: "Q2", answer: "A2" }
+    ]);
+    if (!linked || !plain) throw new Error("cards not added");
+    expect(linked.conceptIds).toEqual(["c1", "c2"]);
+    expect(plain.conceptIds).toBeUndefined();
+
+    expect((await store.updateCard(plain.id, { conceptIds: ["c3"] })).conceptIds).toEqual(["c3"]);
+    expect((await store.updateCard(plain.id, { question: "Q2b" })).conceptIds).toEqual(["c3"]);
+
+    await store.replaceConcepts(["c1"], "c3");
+    await store.replaceConcepts(["c2"], null);
+    const byQuestion = new Map((await store.listAllCards()).map((card) => [card.question, card.conceptIds]));
+    expect(byQuestion.get("Q1")).toEqual(["c3"]);
+    expect(byQuestion.get("Q2b")).toEqual(["c3"]);
+
+    const cleared = await store.updateCard(linked.id, { conceptIds: [] });
+    expect(cleared.conceptIds).toBeUndefined();
+  });
+
   it("rejects unnamed decks and cards for unknown decks", async () => {
     const { store } = await tempStore();
     await expect(store.createDeck("  ")).rejects.toThrow();
@@ -154,6 +178,25 @@ Here you go:
     ]);
     expect(parseGeneratedCards(reply, passages.slice(0, 1), 2)).toHaveLength(2);
     expect(parseGeneratedCards(reply, passages.slice(0, 1), 2)[0]?.source?.page).toBe(4);
+  });
+
+  it("labels passages that are not from a document and carries their concepts onto the cards", () => {
+    const mixed = [
+      { text: "Mitochondria make ATP.", label: "the reader's note", conceptIds: ["c-atp"] },
+      { docPath: "/cours.pdf", text: "Le noyau contient l'ADN.", page: 5, label: "cours" }
+    ];
+    const [, user] = buildGenerateMessages(mixed, 5);
+    expect(user?.content).toContain("Passage 1 (the reader's note):");
+    expect(user?.content).toContain("Passage 2 (cours, p.5):");
+    const reply = JSON.stringify({
+      cards: [
+        { question: "What makes ATP?", answer: "Mitochondria.", passage: 1 },
+        { question: "Où est l'ADN ?", answer: "Dans le noyau.", passage: 2 }
+      ]
+    });
+    const [fromNote, fromDoc] = parseGeneratedCards(reply, mixed, 5);
+    expect(fromNote).toEqual({ question: "What makes ATP?", answer: "Mitochondria.", conceptIds: ["c-atp"] });
+    expect(fromDoc?.source).toEqual({ docPath: "/cours.pdf", text: "Le noyau contient l'ADN.", page: 5 });
   });
 
   it("explains unusable replies", () => {

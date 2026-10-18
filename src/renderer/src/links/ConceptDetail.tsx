@@ -4,10 +4,68 @@ import { labelsFor, samePath } from "@shared/docLabel";
 import { isWebUrl } from "@shared/webPassage";
 import { Icon } from "@renderer/components/Icon";
 import { MarkdownPreview } from "@renderer/components/MarkdownPreview";
+import { GatherToggle } from "@renderer/gather/GatherToggle";
+import { cardItem, conceptPassageItem } from "@renderer/gather/items";
+import { switchPanelTab } from "@renderer/lib/commands";
 import { openPassage } from "@renderer/lib/openPassage";
+import { useFlashcardStore } from "@renderer/state/flashcardStore";
 import { useLinksStore } from "@renderer/state/linksStore";
 import { toast } from "@renderer/state/toastStore";
 import { groupByDoc, indexGraph, passagesOfConcept } from "./graphIndex";
+
+/** Cards that belong to the concept, from every deck; click one to see it in the Cards tab. */
+function ConceptCards({ conceptId }: { conceptId: string }) {
+  const allCards = useFlashcardStore((state) => state.allCards);
+  const cards = useMemo(() => (allCards ?? []).filter((card) => card.conceptIds?.includes(conceptId)), [allCards, conceptId]);
+
+  useEffect(() => {
+    if (!useFlashcardStore.getState().allCards) void useFlashcardStore.getState().loadAllCards();
+  }, []);
+
+  if (cards.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="px-1 text-[10px] uppercase tracking-wide text-text-weak">Cards ({cards.length})</div>
+      {cards.map((card) => (
+        <div key={card.id} className="group/row flex items-start gap-1">
+          <GatherToggle itemKey={`card:${card.id}`} make={() => cardItem(card)} className="mt-1" />
+          <button
+            type="button"
+            onClick={() =>
+              void useFlashcardStore
+                .getState()
+                .focusCard(card)
+                .then(() => switchPanelTab("flashcards"))
+            }
+            className="flex min-w-0 flex-1 gap-1.5 rounded px-1 py-0.5 text-left hover:bg-bg-subtle"
+            title={`${card.question}\n\n${card.answer}`}
+          >
+            <span className="shrink-0 text-accent">Q</span>
+            <MarkdownPreview content={card.question} lines={2} className="min-w-0 flex-1 text-text-weak" />
+          </button>
+          <button
+            type="button"
+            title="Unlink this card"
+            onClick={() =>
+              void useFlashcardStore
+                .getState()
+                .updateCard(card.id, { conceptIds: (card.conceptIds ?? []).filter((id) => id !== conceptId) })
+            }
+            className="rounded p-0.5 text-text-weak opacity-0 hover:text-text group-hover/row:opacity-100"
+          >
+            <Icon name="close" className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function reloadCards(): void {
+  const cards = useFlashcardStore.getState();
+  void cards.loadAllCards();
+  if (cards.activeDeckId) void cards.loadCards(cards.activeDeckId);
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -59,6 +117,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
     try {
       await window.api.links.concepts.remove(concept.id);
       useLinksStore.getState().select(null);
+      reloadCards();
     } catch (error) {
       toast.error(errorText(error));
     }
@@ -68,6 +127,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
     try {
       await window.api.links.concepts.merge(target.id, [concept.id]);
       useLinksStore.getState().select(target.id);
+      reloadCards();
       toast.success(`Merged into ${target.name}`);
       setMergeQuery("");
     } catch (error) {
@@ -137,7 +197,8 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
             </span>
           </div>
           {entries.map(({ passage, edge }) => (
-            <div key={edge.id} className="group flex items-start gap-1">
+            <div key={edge.id} className="group group/row flex items-start gap-1">
+              <GatherToggle itemKey={`graph:${passage.id}`} make={() => conceptPassageItem(passage, concept)} className="mt-1" />
               <button
                 type="button"
                 onClick={() =>
@@ -169,6 +230,7 @@ export function ConceptDetail({ concept, currentDocPath }: { concept: Concept; c
           ))}
         </div>
       ))}
+      <ConceptCards conceptId={concept.id} />
       <div className="mt-1 flex flex-col gap-1 border-t border-border pt-2">
         <input
           value={mergeQuery}

@@ -12,6 +12,25 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const FOLDED_KEY = "ra:links:reviewFolded";
+
+function recallFolded(): boolean {
+  try {
+    return localStorage.getItem(FOLDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberFolded(folded: boolean): void {
+  try {
+    if (folded) localStorage.setItem(FOLDED_KEY, "1");
+    else localStorage.removeItem(FOLDED_KEY);
+  } catch {
+    // storage unavailable; the queue opens unfolded next time
+  }
+}
+
 async function run(action: () => Promise<unknown>): Promise<void> {
   try {
     await action();
@@ -149,6 +168,14 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
   const [scope, setScope] = useState<"doc" | "all">("doc");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [mergeName, setMergeName] = useState<string | null>(null);
+  const [folded, setFolded] = useState(recallFolded);
+
+  const toggleFolded = (): void => {
+    setFolded((current) => {
+      rememberFolded(!current);
+      return !current;
+    });
+  };
 
   useEffect(() => {
     if (!docPath) return;
@@ -182,9 +209,18 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
     <section className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <h3 className="text-[10px] uppercase tracking-wide text-text-weak">
-          To review {proposals.length > 0 ? `(${visible.length})` : ""}
+          <button
+            type="button"
+            onClick={toggleFolded}
+            aria-expanded={!folded}
+            title={folded ? "Show the review queue" : "Hide the review queue"}
+            className="uppercase tracking-wide hover:text-text"
+          >
+            {folded ? "▸" : "▾"} To review {proposals.length > 0 ? `(${visible.length})` : ""}
+            {folded && running ? " · extracting…" : ""}
+          </button>
         </h3>
-        {proposals.length > 0 ? (
+        {proposals.length > 0 && !folded ? (
           <select
             value={scope}
             onChange={(event) => setScope(event.target.value === "all" ? "all" : "doc")}
@@ -196,7 +232,7 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
         ) : null}
       </div>
 
-      {docPath ? (
+      {docPath && !folded ? (
         <div className="flex flex-col gap-1 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text-weak">
           {progress && (running || progress.total > 0) ? (
             <>
@@ -269,7 +305,7 @@ export function ReviewQueue({ docPath }: { docPath: string | null }) {
         </div>
       ) : null}
 
-      {visible.length > 0 ? (
+      {visible.length > 0 && !folded ? (
         <>
           <div className="flex flex-wrap items-center gap-1 text-[11px]">
             <button

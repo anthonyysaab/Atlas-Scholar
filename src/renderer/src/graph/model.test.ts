@@ -123,3 +123,22 @@ describe("web excerpts in the graph", () => {
     expect(ids).toContain("w3");
   });
 });
+
+describe("flashcards in the graph", () => {
+  const cards = [
+    { id: "k1", question: "Qu'est-ce qu'un cardinal infini ?", answer: "…", conceptIds: ["cardinal", "ls"] },
+    { id: "k2", question: "Orphan", answer: "…", conceptIds: ["gone"] }
+  ];
+
+  it("draws a card next to each of its concepts and drops cards whose concepts are not shown", () => {
+    const data = buildGraphData(graph, { cards });
+    expect(data.nodes.filter((node) => node.kind === "card").map((node) => node.id)).toEqual(["card:k1"]);
+    expect(data.links.filter((link) => link.kind === "card").map((link) => link.source).sort()).toEqual(["cardinal", "ls"]);
+    expect(data.nodes.find((node) => node.id === "card:k1")?.degree).toBe(2);
+  });
+
+  it("keeps cards in the concepts-only view", () => {
+    const data = buildGraphData(graph, { conceptsOnly: true, cards });
+    expect(data.nodes.some((node) => node.id === "card:k1")).toBe(true);
+  });
+});
