@@ -4,6 +4,7 @@ import type { ViewUpdate } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Icon } from "@renderer/components/Icon";
 import { Markdown } from "@renderer/components/Markdown";
+import { isRichTextExt } from "@shared/mime";
 import { formatBytes } from "@renderer/lib/format";
 import { useAppStore } from "@renderer/state/appStore";
 import { useBookmarkStore } from "@renderer/state/bookmarkStore";
@@ -14,6 +15,7 @@ import { BookmarkNav } from "./BookmarkNav";
 import { languageForExt } from "./languages";
 import type { RendererViewProps } from "./registry";
 import { clearSelectionForDoc, emitSelection } from "./selection";
+import { useViewModeStore } from "./viewModeStore";
 
 type Status = "loading" | "ready" | "error" | "too-large";
 
@@ -265,6 +267,16 @@ export function TextViewer({ ref, docId }: RendererViewProps) {
         {dirty ? <span className="text-accent">• unsaved</span> : null}
         <span className="flex-1" />
         {error ? <span className="text-anno-pink">{error}</span> : null}
+        {isRichTextExt(ref.ext) ? (
+          <button
+            type="button"
+            onClick={() => useViewModeStore.getState().setMode(ref.path, "rich")}
+            className="rounded border border-border px-2 py-0.5 hover:bg-panel hover:text-text"
+            title="Edit with the formatting toolbar"
+          >
+            Rich
+          </button>
+        ) : null}
         {isMarkdown ? (
           <div className="flex items-center overflow-hidden rounded border border-border">
             {(["edit", "preview"] as const).map((next) => (

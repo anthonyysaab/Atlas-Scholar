@@ -1,4 +1,5 @@
 import * as mammoth from "mammoth";
+import type { DocHtml } from "@shared/types";
 import type { Extractor, RawExtraction } from "./types";
 import { normalizeText } from "./text";
 
@@ -21,3 +22,22 @@ export const docxExtractor: Extractor = {
     };
   }
 };
+
+/**
+ * The document as HTML for the read-only rich view. Images are dropped (and counted) rather than
+ * inlined as base64: they would bloat the Markdown that "Edit as draft" derives from this HTML.
+ */
+export async function docxToHtml(bytes: Uint8Array): Promise<DocHtml> {
+  let images = 0;
+  const result = await mammoth.convertToHtml(
+    { buffer: Buffer.from(bytes) },
+    {
+      convertImage: mammoth.images.imgElement(async () => {
+        images += 1;
+        return { src: "" };
+      })
+    }
+  );
+  const html = result.value.replace(/<img\b[^>]*>/gi, "");
+  return { html, images, warnings: result.messages.length };
+}

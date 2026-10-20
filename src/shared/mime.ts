@@ -67,6 +67,15 @@ const TEXT_EXTS = new Set([
   "rs", "java", "c", "h", "cpp", "hpp", "cs", "sh", "ps1", "sql"
 ]);
 
+/** Prose files the rich (Word-like) editor opens by default; plain text is valid Markdown. */
+export const RICH_TEXT_EXTS = new Set(["md", "markdown", "txt", "text"]);
+
+export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export function isRichTextExt(ext: string): boolean {
+  return RICH_TEXT_EXTS.has(ext);
+}
+
 export function mimeForExt(ext: string): string {
   return MIME_BY_EXT[ext] ?? "application/octet-stream";
 }

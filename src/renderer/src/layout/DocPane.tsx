@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { openViaDialog } from "@renderer/lib/openFiles";
 import { useFileWatch } from "@renderer/hooks/useFileWatch";
+import { newDraft } from "@renderer/library/drafts";
 import { ExternalDocBanner } from "@renderer/library/ExternalDocBanner";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
 import { registerBuiltInRenderers } from "@renderer/viewer/builtins";
@@ -63,13 +64,23 @@ function DocContent() {
         <Icon name="file" className="h-8 w-8 text-text-weak" />
         <p className="text-sm text-text">No document open</p>
         <p className="text-xs text-text-weak">Open a file with Ctrl+O, or drag one onto the window.</p>
-        <button
-          type="button"
-          onClick={() => void openViaDialog()}
-          className="mt-1 rounded border border-border px-3 py-1.5 text-xs text-text hover:bg-panel"
-        >
-          Open file…
-        </button>
+        <div className="mt-1 flex gap-2">
+          <button
+            type="button"
+            onClick={() => void openViaDialog()}
+            className="rounded border border-border px-3 py-1.5 text-xs text-text hover:bg-panel"
+          >
+            Open file…
+          </button>
+          <button
+            type="button"
+            onClick={() => void newDraft()}
+            className="rounded border border-border px-3 py-1.5 text-xs text-text hover:bg-panel"
+            title="Start writing in a new Markdown draft (Ctrl+N)"
+          >
+            New draft
+          </button>
+        </div>
       </div>
     );
   }
@@ -90,7 +101,8 @@ function DocContent() {
     <div className="flex h-full flex-col">
       <ExternalDocBanner doc={doc} />
       <div className="min-h-0 flex-1">
-        <Viewer ref={doc.ref} docId={doc.id} />
+        {/* One editor per tab: a pending draft write is flushed by unmount instead of being lost to a tab switch. */}
+        <Viewer key={doc.id} ref={doc.ref} docId={doc.id} />
       </div>
     </div>
   );

@@ -3,7 +3,9 @@ import { samePath } from "@shared/docLabel";
 import { basename } from "@shared/mime";
 import { Icon } from "@renderer/components/Icon";
 import { openPath, openViaDialog } from "@renderer/lib/openFiles";
+import { closeDocument } from "@renderer/lib/closeDocument";
 import { openSettings } from "@renderer/lib/commands";
+import { newDraft } from "./drafts";
 import { useAppStore } from "@renderer/state/appStore";
 import {
   openLibraryFolder,
@@ -102,7 +104,7 @@ export function LibrarySidebar() {
   const docs = useAppStore((state) => state.docs);
   const activeDocId = useAppStore((state) => state.activeDocId);
   const setActiveDoc = useAppStore((state) => state.setActiveDoc);
-  const closeDoc = useAppStore((state) => state.closeDoc);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const searching = findQuery.trim().length > 0;
@@ -157,6 +159,15 @@ export function LibrarySidebar() {
           <Icon name="file" className="h-3.5 w-3.5" />
           Open…
         </button>
+        <button
+          type="button"
+          onClick={() => void newDraft()}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-text hover:bg-panel"
+          title="Start writing in a new Markdown draft (Ctrl+N)"
+        >
+          <Icon name="plus" className="h-3.5 w-3.5" />
+          Draft
+        </button>
       </div>
 
       <LibraryNotices />
@@ -200,7 +211,7 @@ export function LibrarySidebar() {
               <button
                 type="button"
                 title="Close"
-                onClick={() => closeDoc(doc.id)}
+                onClick={() => void closeDocument(doc.id)}
                 className="rounded p-0.5 opacity-0 hover:text-text group-hover:opacity-100"
               >
                 <Icon name="close" className="h-3 w-3" />

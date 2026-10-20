@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import type {
+  DraftInput,
   FileLibraryInfo,
   FindProgress,
   LibraryChangedEvent,
@@ -27,6 +28,7 @@ import {
   type LibraryContext,
   type LibraryManifest
 } from "./context";
+import { createDraft, renameDocument } from "./drafts";
 import { ExtractQueue } from "./extractQueue";
 import { cleanupTempFiles, findConflictCopies, machineName, othersPresent, startPresence } from "./hardening";
 import { hashFileMemo } from "./hash";
@@ -267,6 +269,24 @@ export async function importIntoLibrary(paths: readonly string[], folder?: strin
   const moves = outcomes.flatMap((outcome) => (outcome.move ? [outcome.move] : []));
   requireConfig().emit({ moves, filesChanged: true });
   return outcomes;
+}
+
+/** A new Markdown file in the library (default `Drafts/`), recorded in the catalog; returns its path. */
+export async function createDraftInLibrary(input: DraftInput = {}): Promise<string> {
+  const library = requireOpenLibrary();
+  const path = await createDraft({ ctx: library.ctx, catalog: library.catalog }, input);
+  requireConfig().emit({ moves: [], filesChanged: true });
+  return path;
+}
+
+/** Rename a library document in its folder; its data and open tab follow via `library:changed`. */
+export async function renameInLibrary(path: string, newName: string): Promise<string> {
+  const library = requireOpenLibrary();
+  const move = await renameDocument({ ctx: library.ctx, catalog: library.catalog, targets: relocatables() }, resolve(path), newName);
+  if (samePath(move.from, move.to)) return move.to;
+  aliases.add(move);
+  requireConfig().emit({ moves: [move], filesChanged: true });
+  return move.to;
 }
 
 /** Outside documents that still exist and carry data worth bringing into the library. */

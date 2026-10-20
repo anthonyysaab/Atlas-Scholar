@@ -32,7 +32,17 @@ export type IconName =
   | "chevron-down"
   | "chevron-right"
   | "link"
-  | "graph";
+  | "graph"
+  | "undo"
+  | "redo"
+  | "list"
+  | "list-ordered"
+  | "list-check"
+  | "quote"
+  | "code"
+  | "table"
+  | "sigma"
+  | "minus";
 
 const PATHS: Record<IconName, ReactNode> = {
   file: (
@@ -157,7 +167,52 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="9" cy="18" r="2.5" />
       <path d="M8.3 7.1 15.6 7.6M7 8.4l1.4 7.2M16.3 10l-5.5 6.2" />
     </>
-  )
+  ),
+  undo: (
+    <>
+      <path d="M3 7v6h6" />
+      <path d="M3 13a9 9 0 1 1 3 6.7" />
+    </>
+  ),
+  redo: (
+    <>
+      <path d="M21 7v6h-6" />
+      <path d="M21 13a9 9 0 1 0-3 6.7" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M9 6h12M9 12h12M9 18h12" />
+      <path d="M4 6h.01M4 12h.01M4 18h.01" strokeWidth="2.6" />
+    </>
+  ),
+  "list-ordered": (
+    <>
+      <path d="M10 6h11M10 12h11M10 18h11" />
+      <path d="M4 6h2M5 4v4M4 10.5a1.5 1.5 0 0 1 3 0c0 1-3 2-3 3.5h3M4 17a1.5 1.5 0 1 1 1.5 1.5A1.5 1.5 0 1 1 4 20" />
+    </>
+  ),
+  "list-check": (
+    <>
+      <path d="M10 6h11M10 12h11M10 18h11" />
+      <path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />
+    </>
+  ),
+  quote: (
+    <>
+      <path d="M6 11a3 3 0 1 0 3 3V9a3 3 0 0 0-3-3" />
+      <path d="M15 11a3 3 0 1 0 3 3V9a3 3 0 0 0-3-3" />
+    </>
+  ),
+  code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M3 15h18M10 4v16" />
+    </>
+  ),
+  sigma: <path d="M18 6H6l6 6-6 6h12" />,
+  minus: <path d="M5 12h14" />
 };
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {

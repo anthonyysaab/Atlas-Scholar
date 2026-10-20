@@ -15,9 +15,10 @@ export interface FindBarProps {
   onClose: () => void;
   /** Changing this focuses and selects the input (Ctrl+F); opening from a link leaves focus alone. */
   focusSignal: number;
+  placeholder?: string;
 }
 
-export function FindBar({ inputRef, query, onQuery, active, total, scanning, capped, onNext, onPrev, onClose, focusSignal }: FindBarProps) {
+export function FindBar({ inputRef, query, onQuery, active, total, scanning, capped, onNext, onPrev, onClose, focusSignal, placeholder = "Find in PDF" }: FindBarProps) {
   useEffect(() => {
     if (focusSignal === 0) return;
     inputRef.current?.focus();
@@ -50,8 +51,8 @@ export function FindBar({ inputRef, query, onQuery, active, total, scanning, cap
             onClose();
           }
         }}
-        placeholder="Find in PDF"
-        aria-label="Find in PDF"
+        placeholder={placeholder}
+        aria-label={placeholder}
         className="w-44 bg-transparent px-1 py-0.5 text-text outline-none placeholder:text-text-weak"
         spellCheck={false}
       />

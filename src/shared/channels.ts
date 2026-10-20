@@ -12,14 +12,19 @@ export const IPC = {
     changed: "file:changed"
   },
   doc: {
-    extract: "doc:extract"
+    extract: "doc:extract",
+    toHtml: "doc:toHtml"
   },
   notes: {
     list: "notes:list",
     get: "notes:get",
     create: "notes:create",
     update: "notes:update",
-    remove: "notes:remove"
+    remove: "notes:remove",
+    cratesList: "notes:crates:list",
+    cratesCreate: "notes:crates:create",
+    cratesRename: "notes:crates:rename",
+    cratesRemove: "notes:crates:remove"
   },
   annotations: {
     list: "annotations:list",
@@ -162,6 +167,8 @@ export const IPC = {
     rescan: "library:rescan",
     import: "library:import",
     importDialog: "library:importDialog",
+    createDraft: "library:createDraft",
+    rename: "library:rename",
     reveal: "library:reveal",
     outsideWithData: "library:outsideWithData",
     migrationPlan: "library:migration:plan",

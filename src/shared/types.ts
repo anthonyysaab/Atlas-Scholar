@@ -41,8 +41,17 @@ export interface ExtractedDoc {
   meta: Record<string, string | number>;
 }
 
+/** A Word document converted for the read-only rich view; images are left out and counted. */
+export interface DocHtml {
+  html: string;
+  images: number;
+  warnings: number;
+}
+
 export interface DocApi {
   extract(path: string): Promise<ExtractedDoc>;
+  /** `.docx` only. */
+  toHtml(path: string): Promise<DocHtml>;
 }
 
 export type AnnotationKind = "highlight" | "note" | "comment";
@@ -123,6 +132,8 @@ export interface Note {
   id: string;
   title: string;
   body: string;
+  /** The crate (folder) holding the note; absent when unfiled. */
+  crateId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -131,6 +142,7 @@ export interface NoteSummary {
   id: string;
   title: string;
   excerpt: string;
+  crateId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -138,11 +150,32 @@ export interface NoteSummary {
 export interface NoteInput {
   title?: string;
   body?: string;
+  crateId?: string;
 }
 
 export interface NotePatch {
   title?: string;
   body?: string;
+  /** null takes the note out of its crate. */
+  crateId?: string | null;
+}
+
+/** A named folder of notes; a note sits in at most one. */
+export interface NoteCrate {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteCratesApi {
+  /** Sorted by name. */
+  list(): Promise<NoteCrate[]>;
+  /** Returns the existing crate on a case-insensitive name match. */
+  create(name: string): Promise<NoteCrate>;
+  rename(id: string, name: string): Promise<NoteCrate>;
+  /** Deletes the crate only; its notes stay, unfiled. */
+  remove(id: string): Promise<void>;
 }
 
 export interface NotesApi {
@@ -150,9 +183,11 @@ export interface NotesApi {
   list(): Promise<NoteSummary[]>;
   get(id: string): Promise<Note>;
   create(input: NoteInput): Promise<Note>;
+  /** Moving a note between crates keeps its updatedAt. */
   update(id: string, patch: NotePatch): Promise<Note>;
   /** Moves the note to the notes folder's `.trash`. */
   remove(id: string): Promise<void>;
+  crates: NoteCratesApi;
 }
 
 export interface AnnotationsApi {
@@ -842,6 +877,14 @@ export interface ImportResult {
   existing: boolean;
 }
 
+/** A new Markdown file in the library: `folder` is library-relative (default `Drafts`). */
+export interface DraftInput {
+  folder?: string;
+  /** Any extension other than `.md`/`.markdown` becomes part of the name. Default `Untitled draft.md`. */
+  name?: string;
+  content?: string;
+}
+
 export interface TextSearchInput {
   query: string;
 }
@@ -896,6 +939,10 @@ export interface LibraryApi {
   /** Copy outside documents into the library (`folder` is library-relative); originals are untouched. */
   import(paths: string[], folder?: string): Promise<ImportResult[]>;
   importDialog(folder?: string): Promise<ImportResult[]>;
+  /** Write a new draft (free name on collision) and return its absolute path. */
+  createDraft(input?: DraftInput): Promise<string>;
+  /** Rename a library document in its folder, keeping its extension; returns the new path. */
+  rename(path: string, newName: string): Promise<string>;
   reveal(path?: string): Promise<void>;
   /** Outside documents that still exist and carry chats, links, bookmarks or cards. */
   outsideWithData(): Promise<string[]>;
@@ -934,6 +981,7 @@ export interface OpenDoc {
   id: string;
   ref: FileRef;
   kind: "pdf" | "text" | "image" | "fallback";
+  /** Unsaved edits, or a draft write still pending. */
   dirty: boolean;
 }
 

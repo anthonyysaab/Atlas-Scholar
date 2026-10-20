@@ -13,6 +13,7 @@ import type {
   LinkAssistPlan,
   MapProgress,
   Note,
+  NoteCrate,
   NoteSummary,
   ThinkingSupport,
   Api,
@@ -27,6 +28,7 @@ import type {
   ConceptProposal,
   Deck,
   DocApi,
+  DocHtml,
   DocThemes,
   ExtractedDoc,
   ExtractProgress,
@@ -120,7 +122,8 @@ const fileApi: Api["file"] = {
 };
 
 const docApi: DocApi = {
-  extract: (path) => invoke<ExtractedDoc>(IPC.doc.extract, path)
+  extract: (path) => invoke<ExtractedDoc>(IPC.doc.extract, path),
+  toHtml: (path) => invoke<DocHtml>(IPC.doc.toHtml, path)
 };
 
 const notesApi: Api["notes"] = {
@@ -128,7 +131,13 @@ const notesApi: Api["notes"] = {
   get: (id) => invoke<Note>(IPC.notes.get, id),
   create: (input) => invoke<Note>(IPC.notes.create, input),
   update: (id, patch) => invoke<Note>(IPC.notes.update, id, patch),
-  remove: (id) => invoke<void>(IPC.notes.remove, id)
+  remove: (id) => invoke<void>(IPC.notes.remove, id),
+  crates: {
+    list: () => invoke<NoteCrate[]>(IPC.notes.cratesList),
+    create: (name) => invoke<NoteCrate>(IPC.notes.cratesCreate, name),
+    rename: (id, name) => invoke<NoteCrate>(IPC.notes.cratesRename, id, name),
+    remove: (id) => invoke<void>(IPC.notes.cratesRemove, id)
+  }
 };
 
 const annotationsApi: Api["annotations"] = {
@@ -265,6 +274,8 @@ const libraryApi: LibraryApi = {
   rescan: () => invoke<LibraryFile[]>(IPC.library.rescan),
   import: (paths, folder) => invoke<ImportResult[]>(IPC.library.import, paths, folder),
   importDialog: (folder) => invoke<ImportResult[]>(IPC.library.importDialog, folder),
+  createDraft: (input) => invoke<string>(IPC.library.createDraft, input),
+  rename: (path, newName) => invoke<string>(IPC.library.rename, path, newName),
   reveal: (path) => invoke<void>(IPC.library.reveal, path),
   outsideWithData: () => invoke<string[]>(IPC.library.outsideWithData),
   migration: {

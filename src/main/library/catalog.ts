@@ -351,6 +351,29 @@ export class LibraryCatalog {
     return undefined;
   }
 
+  /**
+   * Rename a tracked file: `perform` runs the fs rename inside the queue, so a rescan the watcher
+   * triggers never sees the file as vanished + appeared and never reports a second move.
+   */
+  async rename(fromRel: string, toRel: string, perform: () => Promise<void>): Promise<RelMove> {
+    return this.run(async () => {
+      const entry = this.entry(fromRel);
+      await perform();
+      const relPath = toRel.normalize("NFC");
+      if (entry) {
+        entry.relPath = relPath;
+        delete entry.missingSince;
+        if (entry.contentHash) rememberHash(this.abs(relPath), entry.size, entry.mtimeMs, entry.contentHash);
+      } else {
+        const info = await stat(this.abs(relPath));
+        this.data.files.push({ relPath, size: info.size, mtimeMs: info.mtimeMs, addedAt: this.now().toISOString() });
+      }
+      this.data.files.sort((a, b) => a.relPath.localeCompare(b.relPath));
+      await writeJsonAtomic(this.options.file, this.data);
+      return { from: fromRel, to: relPath };
+    });
+  }
+
   /** Record a file the app itself just added (import), so the next scan does not treat it as new. */
   async record(entry: CatalogEntry): Promise<void> {
     await this.run(async () => {

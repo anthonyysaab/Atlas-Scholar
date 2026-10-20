@@ -1,9 +1,10 @@
 import { dialog, shell } from "electron";
 import { IPC } from "@shared/channels";
-import type { ImportResult, MigrationChoices } from "@shared/types";
+import type { DraftInput, ImportResult, MigrationChoices } from "@shared/types";
 import { reloadRenderer } from "@main/events";
 import { planMigration, runMigration } from "@main/library/migrate";
 import {
+  createDraftInLibrary,
   createLibraryAt,
   findInLibrary,
   importIntoLibrary,
@@ -13,6 +14,7 @@ import {
   openLibraryAt,
   outsideDocumentsWithData,
   recentLibraries,
+  renameInLibrary,
   requireOpenLibrary,
   rescanLibrary
 } from "@main/library/service";
@@ -33,6 +35,25 @@ function parseChoices(value: unknown): MigrationChoices {
   const name = asString(record?.["name"]);
   const copy = asArray(record?.["copy"]).flatMap((entry) => (typeof entry === "string" && entry ? [entry] : []));
   return { copy, ...(name ? { name } : {}) };
+}
+
+// Matches the renderer's inline-edit cap; a draft beyond it is edited in the source view.
+const MAX_DRAFT_CONTENT_CHARS = 8 * 1024 * 1024;
+
+function parseDraftInput(value: unknown): DraftInput {
+  const record = asRecord(value);
+  // An empty folder means the library root, so it must survive here.
+  const folder = record?.["folder"];
+  const name = optionalString(record?.["name"]);
+  const content = record?.["content"];
+  if (folder !== undefined && typeof folder !== "string") throw new Error("Invalid draft folder");
+  if (content !== undefined && typeof content !== "string") throw new Error("Invalid draft content");
+  if (typeof content === "string" && content.length > MAX_DRAFT_CONTENT_CHARS) throw new Error("The draft is too large");
+  return {
+    ...(typeof folder === "string" ? { folder } : {}),
+    ...(name ? { name } : {}),
+    ...(typeof content === "string" ? { content } : {})
+  };
 }
 
 function parsePaths(value: unknown): string[] {
@@ -96,6 +117,11 @@ export function registerLibraryIpc(deps: LibraryIpcDeps): void {
     if (result.canceled || result.filePaths.length === 0) return [];
     return toResults(await importIntoLibrary(result.filePaths, optionalString(folder)));
   });
+
+  handle(ipc.createDraft, (input: unknown) => createDraftInLibrary(parseDraftInput(input)));
+  handle(ipc.rename, (path: unknown, name: unknown) =>
+    renameInLibrary(requireString(path, "path"), requireString(name, "file name"))
+  );
 
   handle(ipc.reveal, async (path: unknown) => {
     const target = optionalString(path);

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { openSettings, openSidebar, switchPanelTab, togglePalette, togglePanel, toggleSidebar } from "@renderer/lib/commands";
 import { FIND_LIBRARY_EVENT } from "@renderer/library/LibraryFind";
 import { openViaDialog } from "@renderer/lib/openFiles";
+import { newDraft } from "@renderer/library/drafts";
 import { openConceptGraph } from "@renderer/links/actions";
 import { useAppStore } from "@renderer/state/appStore";
 import { useChatStore } from "@renderer/state/chatStore";
@@ -26,6 +27,10 @@ export function useKeybinds(): void {
         case "o":
           event.preventDefault();
           void openViaDialog();
+          break;
+        case "n":
+          event.preventDefault();
+          void newDraft();
           break;
         case "p":
           event.preventDefault();

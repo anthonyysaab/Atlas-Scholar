@@ -99,8 +99,11 @@ interface ExtractedDoc {
   meta: Record<string, string | number>
 }
 
+interface DocHtml { html: string; images: number; warnings: number }   // images are dropped and counted
+
 interface DocApi {
   extract(path: string): Promise<ExtractedDoc>   // cached by contentHash
+  toHtml(path: string): Promise<DocHtml>         // .docx only (mammoth); the read-only rich view (08)
 }
 ```
 
@@ -175,14 +178,21 @@ If the file's `fileHash` no longer matches the current document, keep the items 
 ### 1.3b `NotesApi` (Notes tab)
 
 ```ts
-interface Note { id: string; title: string; body: string /* Markdown */; createdAt: string; updatedAt: string }
-interface NoteSummary { id: string; title: string; excerpt: string; createdAt: string; updatedAt: string }
+interface Note { id: string; title: string; body: string /* Markdown */; crateId?: string; createdAt: string; updatedAt: string }
+interface NoteSummary { id: string; title: string; excerpt: string; crateId?: string; createdAt: string; updatedAt: string }
+interface NoteCrate { id: string; name: string; createdAt: string; updatedAt: string }   // a folder of notes
 interface NotesApi {
   list(): Promise<NoteSummary[]>               // most recently edited first
   get(id: string): Promise<Note>
-  create(input: { title?: string; body?: string }): Promise<Note>
-  update(id: string, patch: { title?: string; body?: string }): Promise<Note>
+  create(input: { title?: string; body?: string; crateId?: string }): Promise<Note>
+  update(id: string, patch: { title?: string; body?: string; crateId?: string | null }): Promise<Note>  // null unfiles; a crate-only patch keeps updatedAt
   remove(id: string): Promise<void>            // moved to notes/.trash, never erased
+  crates: {
+    list(): Promise<NoteCrate[]>               // by name
+    create(name: string): Promise<NoteCrate>   // returns the existing crate on a case-insensitive name match
+    rename(id: string, name: string): Promise<NoteCrate>   // onto another crate's name -> error
+    remove(id: string): Promise<void>          // the crate only; its notes stay, unfiled
+  }
 }
 ```
 
@@ -192,6 +202,13 @@ A link to an annotation is a Markdown link whose target is the fragment
 `#annotation:<annotationId>@<encodeURIComponent(docPath)>` (`src/shared/notes.ts`); the document path
 is stored through `PathCodec` and returned as a runtime path. Clicking one opens the document at the
 highlight. Channels: `notes:list|get|create|update|remove`.
+
+Crates are folders for notes: a note sits in at most one, named by a `crate: <id>` line in its front
+matter; the crates themselves live in `notes/crates.json` (`{ version: 1, crates: NoteCrate[] }`).
+Names are trimmed, whitespace collapsed, 1–80 chars, unique ignoring case; at most 500 crates. A note
+whose crate id is missing from `crates.json` lists as unfiled. The Notes tab's crate bar picks the
+crate the note picker shows (All notes, a crate, or Unfiled); new notes go into the picked crate, and
+the menu by a note's title moves it. Channels: `notes:crates:list|create|rename|remove`.
 
 ### 1.4 `RagApi`
 
@@ -751,6 +768,7 @@ interface MigrationPlan { root: string; docs: MigrationDoc[]; totals: { threads:
   passages: number; annotations: number; bookmarks: number; cards: number; decks: number; indexes: number } }
 interface MigrationChoices { name?: string; copy: string[] }    // outside documents to copy in
 interface ImportResult { from: string; path: string; existing: boolean }
+interface DraftInput { folder?: string; name?: string; content?: string }   // 08: folder library-relative, default "Drafts"
 interface TextSearchResult { query: string; totalHits: number; truncated: boolean; searchedDocs: number;
   pendingDocs: number;                                          // still being extracted
   docs: { docPath: string; relPath: string; hits: number;
@@ -769,6 +787,8 @@ interface LibraryApi {
   rescan(): Promise<LibraryFile[]>
   import(paths: string[], folder?: string): Promise<ImportResult[]>   // copies; data re-pointed
   importDialog(folder?: string): Promise<ImportResult[]>
+  createDraft(input?: DraftInput): Promise<string>       // 08: new .md (free name), recorded in the catalog; absolute path
+  rename(path: string, newName: string): Promise<string> // 08: same folder, extension kept; data re-pointed; new path
   reveal(path?: string): Promise<void>                   // a file, or the library folder
   outsideWithData(): Promise<string[]>                   // outside documents carrying data
   migration: {
@@ -790,6 +810,16 @@ Import copies to `<name>.importing-<rand>` then renames; a taken name becomes `n
 (`relocateAll`), the outside sidecar's annotations are merged into the library (the sidecar is left
 as it is), and `library:changed` re-points open tabs. Writes that arrive late for the old path
 during the session (a reply still streaming) are redirected to the copy.
+
+**Drafts (08).** `createDraft` writes `<library>/Drafts/Untitled draft.md` (or `folder`/`name`; a
+taken name becomes `name (2).md`, any extension other than `.md`/`.markdown` is kept as part of the
+name) atomically and records it in the catalog, so the tree updates at once and the watcher's rescan
+has nothing to add. `rename` keeps the file's extension (typing `Essay` for `a.md` gives
+`Essay.md`), refuses a taken sibling name and anything outside the library or under `.assistant`,
+and performs the fs rename *inside the catalog's queue* (`LibraryCatalog.rename`), so the rescan the
+watcher triggers finds the entry already at its new path and never reports a vanished + appeared
+pair. Every store is re-pointed through `relocateAll`, the move is aliased for late writes, and
+`library:changed` carries it so open tabs follow.
 
 Identity: concepts match on `foldConceptKey` (accents, case, a leading article and punctuation
 folded) of name and aliases; passages match on `chunkId` (unless the draft carries selection rects)
@@ -880,6 +910,14 @@ Priority: exact-mime → extension → fallback (`meta-view`). Registered in
 `01-viewers`; the fallback always exists so any file opens. Non-renderable types get a
 metadata panel plus an "Open in default app" button.
 
+`rich-text` (08) is registered last and matches everything `text-viewer` matches plus `.docx`, so it
+wins both passes; its `RichSwitch` renders the Word-like `DraftEditor` for `.md`/`.markdown`/
+`.txt`/`.text` (and `.docx`, read-only) unless the file was switched to **Source**
+(`viewer/viewModeStore.ts`, per path, in `localStorage`), and `TextViewer` for everything else.
+`DocPane` keys the viewer by tab id, so each tab owns its editor instance; viewers that autosave
+register a flush per tab (`viewer/flushRegistry.ts`) which `lib/closeDocument.ts` awaits before
+closing.
+
 ---
 
 ## 4. Vector index format (main process)
@@ -937,7 +975,7 @@ interface OpenDoc {
   id: string                   // uuid, per open tab
   ref: FileRef
   kind: "pdf" | "text" | "image" | "fallback"
-  dirty: boolean               // text edits unsaved
+  dirty: boolean               // text edits unsaved, or a draft write still pending (08)
 }
 
 interface Thread {
@@ -994,6 +1032,7 @@ ignored.
   annotations/<docKey>.json          library documents (same shape as a D8 sidecar)
   annotations/external/<hash>.json   outside documents whose folder is read-only
   notes/<id>.md                      Notes tab (front matter + Markdown); notes/.trash/ for deleted ones
+  notes/crates.json                  { version: 1, crates: NoteCrate[] } (folders of notes)
   cache/extract/<hash>.json          ExtractedDoc cache
   cache/maps/<hash>.json             argument map + section replies so far (06)
   presence/<machine>.json            { machine, pid, heartbeatAt }, refreshed every minute

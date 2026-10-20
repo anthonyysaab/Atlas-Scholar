@@ -3,6 +3,7 @@ import { useAppStore } from "@renderer/state/appStore";
 import { useChatStore } from "@renderer/state/chatStore";
 import { onLibraryMoves } from "@renderer/state/libraryStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
+import { useViewModeStore } from "@renderer/viewer/viewModeStore";
 
 /** Open tabs follow their documents when they are moved, renamed or imported into the library. */
 export function followLibraryMoves(): () => void {
@@ -15,6 +16,7 @@ export function followLibraryMoves(): () => void {
         .then((ref) => {
           const position = useViewStateStore.getState().positions[open.ref.path];
           if (position) useViewStateStore.getState().setPosition(ref.path, position);
+          useViewModeStore.getState().moveMode(open.ref.path, ref.path);
           const docId = useAppStore.getState().replaceDoc(move.from, ref);
           if (docId) useChatStore.getState().repointDoc(docId, ref.path);
         })

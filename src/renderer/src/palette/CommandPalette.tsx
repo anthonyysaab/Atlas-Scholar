@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePresence } from "@renderer/hooks/usePresence";
 import { openViaDialog } from "@renderer/lib/openFiles";
+import { newDraft } from "@renderer/library/drafts";
 import {
   cycleTheme,
   openSettings,
@@ -36,6 +37,7 @@ export function CommandPalette() {
   const commands = useMemo<Command[]>(
     () => [
       { id: "open", label: "Open file…", run: () => void openViaDialog() },
+      { id: "draft:new", label: "New draft (Ctrl+N)", run: () => void newDraft() },
       { id: "model", label: "Select model… (/models)", run: () => useAppStore.getState().setModelPaletteOpen(true) },
       { id: "sidebar", label: "Toggle sidebar", run: () => void toggleSidebar() },
       { id: "panel", label: "Toggle side panel", run: () => void togglePanel() },

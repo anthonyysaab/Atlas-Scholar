@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Icon } from "@renderer/components/Icon";
+import { closeDocument } from "@renderer/lib/closeDocument";
+import { newDraft } from "@renderer/library/drafts";
 import { useAppStore } from "@renderer/state/appStore";
 
 export function DocTabs() {
   const docs = useAppStore((state) => state.docs);
   const activeDocId = useAppStore((state) => state.activeDocId);
   const setActiveDoc = useAppStore((state) => state.setActiveDoc);
-  const closeDoc = useAppStore((state) => state.closeDoc);
   const moveDoc = useAppStore((state) => state.moveDoc);
   const graphTabOpen = useAppStore((state) => state.graphTabOpen);
   const centerView = useAppStore((state) => state.centerView);
@@ -65,13 +66,22 @@ export function DocTabs() {
           <button
             type="button"
             title="Close"
-            onClick={() => closeDoc(doc.id)}
+            onClick={() => void closeDocument(doc.id)}
             className="rounded p-0.5 opacity-0 hover:text-text group-hover:opacity-100"
           >
             <Icon name="close" className="h-3 w-3" />
           </button>
         </div>
       ))}
+      <button
+        type="button"
+        onClick={() => void newDraft()}
+        className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-text-weak hover:bg-panel hover:text-text"
+        title="New draft (Ctrl+N)"
+        aria-label="New draft"
+      >
+        <Icon name="plus" className="h-3.5 w-3.5" />
+      </button>
       {graphTabOpen ? (
         <div
           className={`group flex shrink-0 items-center gap-1 rounded px-2 py-1 ${

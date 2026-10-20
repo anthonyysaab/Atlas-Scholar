@@ -280,3 +280,24 @@ library folder stays portable. Groups belong to one document's annotations, like
 **Consequence:** `NotesApi`, `AnnotationsApi.groups`; Markdown renders `#annotation:` links as chips
 that open the document at the highlight.
 **Date:** 2026-10-16
+
+## D24 — Drafts are Markdown files edited in place with a WYSIWYG editor
+**Decision:** A **draft** is an ordinary `.md` file in the library (new ones go to `Drafts/`),
+edited in a Word-like TipTap (ProseMirror) editor that opens as a document tab. The editor is the
+default for `.md`, `.markdown`, `.txt` and `.text`, with a per-file **Source** toggle back to
+CodeMirror; `.docx` opens read-only in it and "Edit as Markdown draft" writes `<stem>.md` next to
+it. Edits autosave (debounced, flushed on tab switch, close and blur); a file that was only opened
+is never rewritten. Renaming through the title keeps the extension and goes through the catalog
+queue so every store follows.
+**Why:** Markdown is already the app's text format (notes, excerpts, chat), so a draft is indexed,
+searched, cited and rendered by the existing pipeline with no new store, and it stays readable in
+any editor (D23). TipTap is pure JS and CSP-safe (`script-src 'self'`), `@tiptap/markdown` round-trips
+GFM and the math extension speaks `$…$` with the `katex` already shipped. Writing `.docx` would
+need another library and lose fidelity for anything the editor cannot express.
+**Consequence:** `Api.library.createDraft` / `rename`, `Api.doc.toHtml`, `LibraryCatalog.rename`,
+the `rich-text` renderer (§3), `DocPane` keyed by tab, a flush registry consulted before a tab
+closes, `Ctrl+N`. Each editor gets its own `marked` instance (tokenizers registered on the shared
+one would leak math into plain-text files). Markdown is normalised on the first edit (`*em*` →
+`_em_`, list markers, table padding); `[[concept]]` chips are unescaped on save. Images round-trip as
+syntax but do not render; docx images are dropped and counted.
+**Date:** 2026-10-20

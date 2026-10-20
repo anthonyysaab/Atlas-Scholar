@@ -61,6 +61,19 @@ library… (accepted only if the folder holds the same library id) and Forget it
 - Tab strip across the top when multiple documents are open; closable, reorderable.
 - Toolbar (contextual): PDF → zoom, fit, page nav, annotate toggle; text → save, format;
   image → zoom, fit.
+- **Drafts** (08): `.md`, `.markdown`, `.txt` and `.text` open in a Word-like editor: a page-shaped
+  sheet with a formatting strip (undo/redo, paragraph style, B/I/U/S, inline code, link, bulleted /
+  numbered / check lists, table with row/column operations, inline and block math for Markdown,
+  horizontal rule, clear formatting). The header shows the file name as an editable title
+  (Enter/blur renames the file; its data and tab follow), the save state ("Unsaved / Saving… /
+  Saved"), a word count, **Source** (switch this file to the CodeMirror editor; remembered per
+  file, the text viewer's **Rich** button switches back), ★ Bookmark and the bookmark navigator.
+  Edits autosave about a second after typing stops and when the tab is left, closed or the window
+  loses focus; Ctrl+S saves at once; an unedited file is never rewritten. `.docx` opens read-only in
+  the same editor with **Edit as Markdown draft**, which writes `<stem>.md` next to it and never
+  touches the Word file. **+** at the end of the tab strip, the sidebar's **Draft** button, the
+  empty-state button, the palette and `Ctrl+N` create `Drafts/Untitled draft.md` and open it.
+  Ctrl+F opens a find bar over the draft.
 - Opening a file with no registered renderer shows the fallback meta view.
 - **Outside-library banner** above a document that is not in the library: "Not in your library"
   with Import (disabled while an answer is streaming for it), Open library copy (when the same
@@ -171,6 +184,7 @@ text to a few lines with a fade. One-line chips and tooltips stay plain text.
 - `Ctrl+P` command palette (open file, switch panel tab, change model, re-index, toggle theme).
 - Default keybinds:
   - `Ctrl+O` open file
+  - `Ctrl+N` new draft
   - `Ctrl+P` command palette
   - `Ctrl+B` toggle sidebar
   - `Ctrl+J` toggle side panel
@@ -180,7 +194,7 @@ text to a few lines with a fade. One-line chips and tooltips stay plain text.
   - `Ctrl+Enter` send message (focuses the Chat tab first if needed)
   - `Ctrl+F` find in document
   - `Ctrl+Shift+F` find in library
-  - `Ctrl+S` save (text files)
+  - `Ctrl+S` save (text files and drafts)
   - `Esc` cancel stream / clear selection
 
 ## Theme

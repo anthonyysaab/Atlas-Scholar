@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { basename, resolve } from "node:path";
 import { samePath } from "@shared/docLabel";
+import { extname, isTextExt } from "@shared/mime";
 import type {
   IndexStatus,
   LibrarySearchInput,
@@ -123,6 +124,10 @@ function stopWatcher(path: string): void {
   }
 }
 
+// A draft autosaves while the user types; one re-index per writing pause is plenty.
+const REINDEX_DEBOUNCE_MS = 200;
+const EDITED_TEXT_DEBOUNCE_MS = 5000;
+
 function scheduleReindex(path: string): void {
   const existing = watchTimers.get(path);
   if (existing) clearTimeout(existing);
@@ -131,7 +136,7 @@ function scheduleReindex(path: string): void {
     setTimeout(() => {
       watchTimers.delete(path);
       void handleFileChanged(path, "change");
-    }, 200)
+    }, isTextExt(extname(path)) ? EDITED_TEXT_DEBOUNCE_MS : REINDEX_DEBOUNCE_MS)
   );
 }
 

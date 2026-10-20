@@ -1,4 +1,4 @@
-import { isTextExt } from "@shared/mime";
+import { DOCX_MIME, isTextExt } from "@shared/mime";
 import { registerFileRenderer } from "./registry";
 
 let registered = false;
@@ -49,5 +49,13 @@ export function registerBuiltInRenderers(): void {
     id: "pdf-viewer",
     match: (ref) => ref.mime === "application/pdf" || ref.ext === "pdf",
     load: () => import("./pdf-viewer").then((module) => module.PdfViewer)
+  });
+
+  // Matches everything text-viewer matches (so it also wins the mime-only pass) plus Word files, and
+  // hands code back to the text viewer itself.
+  registerFileRenderer({
+    id: "rich-text",
+    match: (ref) => isText(ref) || ref.ext === "docx" || ref.mime === DOCX_MIME,
+    load: () => import("./rich-switch").then((module) => module.RichSwitch)
   });
 }

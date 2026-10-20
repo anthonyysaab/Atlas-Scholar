@@ -1,0 +1,155 @@
+/* A page on a desk: the sheet is the only bright surface, so the eye lands on the text. */
+.ra-draft-scroll {
+  scroll-padding-top: 2rem;
+}
+.ra-draft-page {
+  max-width: 72ch;
+  min-height: calc(100% - 5rem);
+  margin: 1.5rem auto 3.5rem;
+  padding: 2.75rem 3.25rem 4rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / 0.16);
+  cursor: text;
+}
+@media (max-width: 720px) {
+  .ra-draft-page {
+    margin: 0.75rem;
+    padding: 1.5rem 1.25rem 3rem;
+  }
+}
+
+.ra-draft.ProseMirror {
+  outline: none;
+  font-size: 17px;
+  line-height: 1.7;
+  min-height: 50vh;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+.ra-draft.ProseMirror[contenteditable="false"] {
+  cursor: default;
+}
+.ra-draft p {
+  margin: 0.65em 0;
+}
+.ra-draft h1 {
+  font-size: 1.9em;
+  margin-top: 1.1em;
+}
+.ra-draft h2 {
+  font-size: 1.5em;
+  margin-top: 1em;
+}
+.ra-draft h3 {
+  font-size: 1.25em;
+}
+.ra-draft h4 {
+  font-size: 1.08em;
+}
+.ra-draft p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--text-weak);
+  pointer-events: none;
+}
+
+.ra-draft ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25em;
+}
+.ra-draft ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55em;
+}
+.ra-draft ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  margin-top: 0.35em;
+  user-select: none;
+}
+.ra-draft ul[data-type="taskList"] li > label input {
+  accent-color: var(--accent);
+}
+.ra-draft ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ra-draft ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--text-weak);
+  text-decoration: line-through;
+}
+
+/* The shared Markdown rules scroll tables as blocks; in the editor a table is laid out as one. */
+.ra-draft table {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  overflow: visible;
+}
+.ra-draft th,
+.ra-draft td {
+  position: relative;
+  vertical-align: top;
+  min-width: 3em;
+}
+.ra-draft th > p,
+.ra-draft td > p {
+  margin: 0.15em 0;
+}
+.ra-draft .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
+.ra-draft .ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.ra-draft .ProseMirror-gapcursor:after {
+  border-top-color: var(--text);
+}
+
+.ra-draft .tiptap-mathematics-render {
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.ra-draft .tiptap-mathematics-render--editable {
+  cursor: pointer;
+}
+.ra-draft .tiptap-mathematics-render--editable:hover {
+  background: var(--bg-subtle);
+}
+.ra-draft [data-type="block-math"] {
+  display: block;
+  margin: 0.8em 0;
+  text-align: center;
+}
+.ra-draft .inline-math-error,
+.ra-draft .block-math-error {
+  color: var(--anno-pink);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.ra-draft .ra-find-match {
+  background: rgb(255 214 0 / 0.45);
+  border-radius: 2px;
+}
+.ra-draft .ra-find-active {
+  background: rgb(255 140 0 / 0.75);
+}
+
+.ra-draft img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+.ra-draft a {
+  cursor: text;
+}
