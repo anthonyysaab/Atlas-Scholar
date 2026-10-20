@@ -16,6 +16,7 @@ import { CardConcepts, linkCardToConcept } from "@renderer/study/CardConcepts";
 import { CardEditor } from "@renderer/study/CardEditor";
 import { addSelectionToFlashcards, openFlashcardSource } from "@renderer/study/flashcardActions";
 import { ReviewSession } from "@renderer/study/ReviewSession";
+import { ScanBar } from "@renderer/study/ScanBar";
 
 const button = "rounded border border-border px-2 py-0.5 text-xs text-text hover:bg-panel disabled:opacity-40";
 const quiet = "rounded p-1 text-text-weak hover:text-text";
@@ -406,11 +407,12 @@ export function FlashcardsTab() {
   const startReview = (): void => setReviewing(due);
 
   return (
-    <div className="flex h-full flex-col gap-2 overflow-auto p-3">
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3">
       {decks.length === 0 ? (
         <p className="text-xs leading-relaxed text-text-weak">
-          Flashcards help you remember what you read. Create a deck, then add cards by hand or generate them from
-          passages you select in your documents.
+          Flashcards help you remember what you read. Create a deck, then add cards by hand, generate them from
+          passages you select, or ask the bar below to scan a chapter, a page range or the whole document.
         </p>
       ) : null}
       <DeckBar key={decks.length === 0 ? "empty" : "decks"} />
@@ -473,6 +475,8 @@ export function FlashcardsTab() {
           </>
         )
       ) : null}
+      </div>
+      {activeDeckId && !reviewing ? <ScanBar /> : null}
     </div>
   );
 }

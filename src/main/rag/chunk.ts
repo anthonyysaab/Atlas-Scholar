@@ -86,7 +86,8 @@ function pageForOffset(offset: number, ranges: PageRange[]): number | undefined 
   return ranges.at(-1)?.page;
 }
 
-function sectionForPage(
+/** The deepest outline entry at or before the page: the section the page belongs to. */
+export function sectionForPage(
   page: number | undefined,
   outline: { title: string; page?: number; level: number }[] | undefined
 ): string | undefined {

@@ -27,7 +27,7 @@ function loadExpanded(libraryId: string): Set<string> {
   }
 }
 
-function droppedPaths(event: DragEvent): string[] {
+export function droppedPaths(event: DragEvent): string[] {
   const paths: string[] = [];
   for (const file of Array.from(event.dataTransfer.files)) {
     try {

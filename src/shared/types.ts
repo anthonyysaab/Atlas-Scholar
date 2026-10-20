@@ -526,6 +526,7 @@ export interface EventsApi {
   onLinksChanged(cb: (e: LinksChangedEvent) => void): () => void;
   onExtractProgress(cb: (e: ExtractProgress) => void): () => void;
   onMapProgress(cb: (e: MapProgress) => void): () => void;
+  onScanProgress(cb: (e: ScanProgress) => void): () => void;
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void;
 }
 
@@ -760,9 +761,48 @@ export interface GenerateCardsInput {
   passages: CardPassage[];
   /** Upper bound on cards; the model decides how many the passages support. */
   maxCards?: number;
+  /** What the cards should be about; passages that do not touch it are skipped. */
+  focus?: string;
 }
 
-/** Named decks of question/answer cards, reviewed with spaced repetition. Stored in userData. */
+/**
+ * Scan part of a document for cards. `range` (pages, 1-based, inclusive) wins over the request;
+ * otherwise the request is read for a scope ("whole document", "pages 3-5", a section title) and,
+ * failing that, the model plans the scope from the outline. The rest of the request is the focus.
+ */
+export interface ScanCardsInput {
+  providerId: string;
+  model: string;
+  docPath: string;
+  request: string;
+  range?: { from: number; to: number };
+  /** Total cards for the whole scan. */
+  maxCards?: number;
+}
+
+/** The part of the document a scan covers: `units` are pages, or sections when the document has no pages. */
+export interface ScanScope {
+  label: string;
+  units: number;
+  kind: "pages" | "sections";
+}
+
+export interface ScanProgress {
+  docPath: string;
+  state: "planning" | "generating" | "done" | "cancelled" | "error";
+  scope?: ScanScope;
+  /** Batches finished / batches planned. */
+  done: number;
+  total: number;
+  /** Cards drafted so far, and batches whose model call failed. */
+  cards: number;
+  failed: number;
+  error?: string;
+  /** The cards of the batch that just finished; only on progress events. */
+  drafts?: CardDraft[];
+}
+
+/** Named decks of question/answer cards, reviewed with spaced repetition. Stored in the library's `.assistant/flashcards.json`. */
 export interface FlashcardsApi {
   decks: {
     list(): Promise<Deck[]>;
@@ -783,6 +823,9 @@ export interface FlashcardsApi {
   };
   /** Ask the model for cards from the passages; returns drafts for the user to edit before saving. */
   generate(input: GenerateCardsInput): Promise<CardDraft[]>;
+  /** Start scanning a document for cards in the background; drafts arrive on `events.onScanProgress`. */
+  scan(input: ScanCardsInput): Promise<ScanProgress>;
+  cancelScan(docPath: string): Promise<void>;
   /** Save dialog, then write an Anki-importable TSV. Returns the path, or null if cancelled. */
   exportAnki(deckId: string): Promise<string | null>;
 }
@@ -934,6 +977,8 @@ export interface LibraryApi {
   create(root: string, name?: string): Promise<void>;
   /** Switch to the library in `root` (the window reloads). `expectId` guards "Locate moved library". */
   open(root: string, expectId?: string): Promise<void>;
+  /** The renderer has painted after a switch; main lifts the frame it froze over the reload. */
+  shown(): Promise<void>;
   files(): Promise<LibraryFile[]>;
   rescan(): Promise<LibraryFile[]>;
   /** Copy outside documents into the library (`folder` is library-relative); originals are untouched. */

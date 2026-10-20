@@ -4,7 +4,7 @@ import { copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { samePath } from "@shared/docLabel";
 import { renameWithRetry } from "./atomic";
-import type { CatalogEntry, LibraryCatalog } from "./catalog";
+import { scanFolder, type CatalogEntry, type LibraryCatalog } from "./catalog";
 import { ASSISTANT_DIR, type LibraryContext } from "./context";
 import { hashFileStream } from "./hash";
 import { relativeInside, type PathMove } from "./paths";
@@ -94,6 +94,29 @@ export async function importDocument(deps: ImportDeps, src: string, folder?: str
   const move = { from: src, to: copy.path };
   await relocateAll(deps.ctx, [move], deps.targets);
   return { from: src, path: copy.path, existing: Boolean(twin), move };
+}
+
+export interface ImportSource {
+  src: string;
+  folder?: string;
+}
+
+/** A dropped folder imports its documents under `folder/<its name>/…`, keeping its subfolders. */
+export async function expandImportSources(paths: readonly string[], folder?: string): Promise<ImportSource[]> {
+  const base = safeFolder(folder);
+  const sources: ImportSource[] = [];
+  for (const src of paths) {
+    const info = await stat(src);
+    if (!info.isDirectory()) {
+      sources.push(folder === undefined ? { src } : { src, folder });
+      continue;
+    }
+    for (const file of await scanFolder(src)) {
+      const parts = file.relPath.split("/");
+      sources.push({ src: join(src, ...parts), folder: [...base, basename(src), ...parts.slice(0, -1)].join("/") });
+    }
+  }
+  return sources;
 }
 
 /** Late writes for a document that was just imported land on its library copy. */

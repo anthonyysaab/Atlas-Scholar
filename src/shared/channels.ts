@@ -104,6 +104,9 @@ export const IPC = {
     cardsRemove: "flashcards:cards:remove",
     cardsReview: "flashcards:cards:review",
     generate: "flashcards:generate",
+    scan: "flashcards:scan",
+    cancelScan: "flashcards:cancelScan",
+    scanProgress: "flashcards:scanProgress",
     exportAnki: "flashcards:exportAnki"
   },
   browser: {
@@ -163,6 +166,7 @@ export const IPC = {
     pickFolder: "library:pickFolder",
     create: "library:create",
     open: "library:open",
+    shown: "library:shown",
     files: "library:files",
     rescan: "library:rescan",
     import: "library:import",

@@ -14,10 +14,10 @@ import {
   useLibraryStore
 } from "@renderer/state/libraryStore";
 import { toast } from "@renderer/state/toastStore";
-import { importViaDialog } from "./actions";
+import { importPaths, importViaDialog } from "./actions";
 import { LibraryFindBox, LibraryFindResults } from "./LibraryFind";
 import { LibraryNotices } from "./LibraryNotices";
-import { LibraryTree } from "./LibraryTree";
+import { droppedPaths, LibraryTree } from "./LibraryTree";
 import { OutsideDocsCard } from "./OutsideDocsCard";
 
 function LibraryMenu({ onClose }: { onClose: () => void }) {
@@ -107,6 +107,7 @@ export function LibrarySidebar() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
+  const [dropping, setDropping] = useState(false);
   const searching = findQuery.trim().length > 0;
 
   const inLibrary = (path: string): boolean => files.some((file) => samePath(file.path, path));
@@ -123,7 +124,26 @@ export function LibrarySidebar() {
   };
 
   return (
-    <aside className="flex h-full flex-col border-r border-border bg-bg-subtle">
+    <aside
+      className={`flex h-full flex-col border-r border-border bg-bg-subtle ${dropping ? "outline outline-1 -outline-offset-1 outline-accent" : ""}`}
+      onDragOver={(event) => {
+        if (!library || !event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setDropping(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false);
+      }}
+      onDrop={(event) => {
+        setDropping(false);
+        if (!library) return;
+        event.preventDefault();
+        // The window-level handler would open the files instead; anywhere in the sidebar means "import".
+        event.stopPropagation();
+        void importPaths(droppedPaths(event));
+      }}
+    >
       <div className="relative px-2 pb-1 pt-2">
         <button
           type="button"

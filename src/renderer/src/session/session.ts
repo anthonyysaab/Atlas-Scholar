@@ -7,6 +7,17 @@ import { useViewStateStore } from "@renderer/state/viewStateStore";
 const SAVE_DEBOUNCE_MS = 600;
 let restored = false;
 let reloading = false;
+let shown = false;
+
+/**
+ * Once the first real view has painted, let main lift the frame it froze over a library-switch reload;
+ * lifting earlier would flash the empty shell before the restored tabs.
+ */
+export function reportShown(): void {
+  if (shown) return;
+  shown = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => void window.api.library.shown().catch(() => undefined)));
+}
 
 /** Reopen the documents from the previous run, restore the active tab and reading positions. */
 export async function restoreSession(): Promise<void> {
@@ -89,7 +100,7 @@ async function saveSession(): Promise<void> {
 export function useSession(ready: boolean): void {
   useEffect(() => {
     if (!ready) return;
-    void restoreSession();
+    void restoreSession().finally(reportShown);
   }, [ready]);
 
   useEffect(() => {

@@ -1,13 +1,17 @@
 import { dialog } from "electron";
 import { writeFile } from "node:fs/promises";
 import { IPC } from "@shared/channels";
-import type { CardDraft, CardPassage, CardPatch, GenerateCardsInput, ReviewGrade } from "@shared/types";
+import type { CardDraft, CardPassage, CardPatch, GenerateCardsInput, ReviewGrade, ScanCardsInput } from "@shared/types";
+import { emitToRenderer } from "@main/events";
+import { extractDoc } from "@main/ingest/extract";
+import { onLibrarySwitch } from "@main/library/context";
 import { getFlashcardStore } from "@main/library/scopedStores";
 import { completeChat } from "@main/llm/service";
 import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 import { deckToAnkiTsv } from "@main/study/anki";
 import { parseConceptIds, parseSource } from "@main/study/flashcards";
 import { buildGenerateMessages, clampMaxCards, parseGeneratedCards } from "@main/study/generate";
+import { cancelAllScans, cancelScan, setScanDeps, startScan } from "@main/study/scanRunner";
 import { handle } from "./registry";
 
 const GENERATE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -45,6 +49,7 @@ function parsePatch(value: unknown): CardPatch {
 }
 
 const MAX_LABEL_CHARS = 200;
+const MAX_REQUEST_CHARS = 2000;
 
 function parsePassage(value: unknown): CardPassage | null {
   const record = asRecord(value);
@@ -77,10 +82,37 @@ function parseGenerateInput(value: unknown): GenerateCardsInput {
   });
   if (passages.length === 0) throw new Error("Add at least one passage to generate cards from");
   const maxCards = asNumber(record?.["maxCards"]);
+  const focus = asString(record?.["focus"])?.trim().slice(0, MAX_REQUEST_CHARS);
   return {
     providerId: requireString(record?.["providerId"], "provider"),
     model: requireString(record?.["model"], "model"),
     passages,
+    ...(maxCards !== undefined ? { maxCards } : {}),
+    ...(focus ? { focus } : {})
+  };
+}
+
+export function parseScanInput(value: unknown): ScanCardsInput {
+  const record = asRecord(value);
+  const request = (asString(record?.["request"]) ?? "").trim().slice(0, MAX_REQUEST_CHARS);
+  const rangeRecord = asRecord(record?.["range"]);
+  const from = asNumber(rangeRecord?.["from"]);
+  const to = asNumber(rangeRecord?.["to"]);
+  let range: ScanCardsInput["range"];
+  if (rangeRecord) {
+    if (from === undefined || to === undefined || !Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) {
+      throw new Error("Invalid page range");
+    }
+    range = { from, to };
+  }
+  if (!request && !range) throw new Error("Say what to scan, or pick a page range");
+  const maxCards = asNumber(record?.["maxCards"]);
+  return {
+    providerId: requireString(record?.["providerId"], "provider"),
+    model: requireString(record?.["model"], "model"),
+    docPath: requireString(record?.["docPath"], "document"),
+    request,
+    ...(range ? { range } : {}),
     ...(maxCards !== undefined ? { maxCards } : {})
   };
 }
@@ -91,7 +123,7 @@ async function generateCards(input: GenerateCardsInput): Promise<CardDraft[]> {
     {
       providerId: input.providerId,
       model: input.model,
-      messages: buildGenerateMessages(input.passages, maxCards),
+      messages: buildGenerateMessages(input.passages, maxCards, input.focus),
       temperature: 0.2
     },
     AbortSignal.timeout(GENERATE_TIMEOUT_MS)
@@ -142,5 +174,9 @@ export function registerFlashcardsIpc(): void {
     getStore().reviewCard(requireString(id, "card id"), parseGrade(grade))
   );
   handle(ipc.generate, (input: unknown) => generateCards(parseGenerateInput(input)));
+  handle(ipc.scan, (input: unknown) => startScan(parseScanInput(input)));
+  handle(ipc.cancelScan, (docPath: unknown): void => cancelScan(requireString(docPath, "document")));
   handle(ipc.exportAnki, (deckId: unknown) => exportAnki(requireString(deckId, "deck id")));
+  setScanDeps({ complete: completeChat, extract: extractDoc, emit: (progress) => emitToRenderer(ipc.scanProgress, progress) });
+  onLibrarySwitch(cancelAllScans);
 }

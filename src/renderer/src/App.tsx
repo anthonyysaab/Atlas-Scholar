@@ -20,7 +20,7 @@ import { WebExcerptDialog } from "@renderer/links/WebExcerptDialog";
 import { OnboardingModal } from "@renderer/onboarding/OnboardingModal";
 import { CommandPalette } from "@renderer/palette/CommandPalette";
 import { registerDefaultSidePanelTabs } from "@renderer/panes/registerDefaults";
-import { useSession } from "@renderer/session/session";
+import { reportShown, useSession } from "@renderer/session/session";
 import { SettingsModal } from "@renderer/settings/SettingsModal";
 import { ensureLibrarySubscription, useLibraryStore } from "@renderer/state/libraryStore";
 import { ensureLinksSubscription } from "@renderer/state/linksStore";
@@ -47,6 +47,10 @@ export function App() {
   }, [load, loadLibrary]);
 
   useEffect(() => installCitationJumpListener(), []);
+
+  useEffect(() => {
+    if (settings && library && !library.open) reportShown();
+  }, [settings, library]);
 
   useEffect(() => {
     if (!libraryOpen) return;

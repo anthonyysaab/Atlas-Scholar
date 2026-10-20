@@ -148,6 +148,13 @@ describe("card generation", () => {
     expect(user?.content).toContain("Passage 2 (p.5)");
   });
 
+  it("adds the focus after the cap, and the rule to honour it", () => {
+    const [system, user] = buildGenerateMessages(passages, 7, "  les organites  ");
+    expect(user?.content).toContain("Maximum cards: 7\nFocus: les organites\n\nPassage 1");
+    expect(system?.content).toContain("focus");
+    expect(buildGenerateMessages(passages, 7, "  ")[1]?.content).not.toContain("Focus:");
+  });
+
   it("clamps the cap", () => {
     expect(clampMaxCards(undefined)).toBe(20);
     expect(clampMaxCards(0)).toBe(1);

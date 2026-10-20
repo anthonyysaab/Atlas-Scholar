@@ -1,7 +1,7 @@
 import { dialog, shell } from "electron";
 import { IPC } from "@shared/channels";
 import type { DraftInput, ImportResult, MigrationChoices } from "@shared/types";
-import { reloadRenderer } from "@main/events";
+import { liftReloadCover, switchRenderer } from "@main/events";
 import { planMigration, runMigration } from "@main/library/migrate";
 import {
   createDraftInLibrary,
@@ -88,14 +88,14 @@ export function registerLibraryIpc(deps: LibraryIpcDeps): void {
   });
 
   // Switching reloads the window so no renderer state from the previous library survives.
-  handle(ipc.create, async (root: unknown, name: unknown) => {
-    await createLibraryAt(requireString(root, "library folder"), optionalString(name));
-    reloadRenderer();
-  });
-  handle(ipc.open, async (root: unknown, expectId: unknown) => {
-    await openLibraryAt(requireString(root, "library folder"), optionalString(expectId));
-    reloadRenderer();
-  });
+  handle(ipc.create, (root: unknown, name: unknown) =>
+    switchRenderer(() => createLibraryAt(requireString(root, "library folder"), optionalString(name)))
+  );
+  handle(ipc.open, (root: unknown, expectId: unknown) =>
+    switchRenderer(() => openLibraryAt(requireString(root, "library folder"), optionalString(expectId)))
+  );
+
+  handle(ipc.shown, () => liftReloadCover());
 
   handle(ipc.files, () => libraryFiles());
   handle(ipc.rescan, () => rescanLibrary());
@@ -144,7 +144,6 @@ export function registerLibraryIpc(deps: LibraryIpcDeps): void {
     const folder = requireString(root, "library folder");
     await runMigration(deps.userData, folder, parseChoices(choices), deps.appVersion);
     await libraryRegistry().markMigrated(folder);
-    await openLibraryAt(folder);
-    reloadRenderer();
+    await switchRenderer(() => openLibraryAt(folder));
   });
 }

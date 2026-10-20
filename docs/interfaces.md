@@ -525,6 +525,7 @@ interface EventsApi {
   onChatError(cb: (e: { streamId: string; error: string }) => void): () => void
   onIndexProgress(cb: (e: { docPath: string; done: number; total: number; phase: string }) => void): () => void
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void
+  onScanProgress(cb: (e: ScanProgress) => void): () => void   // §1.11, flashcards:scanProgress
 }
 ```
 
@@ -638,7 +639,17 @@ interface CardPatch { question?: string; answer?: string; conceptIds?: string[] 
 // Text to write cards from. docPath (+ page) makes it the card's source; notes, chat answers and
 // concepts have none. label tells the model what it is; conceptIds are copied onto the cards.
 interface CardPassage { text: string; docPath?: string; page?: number; label?: string; conceptIds?: string[] }
-interface GenerateCardsInput { providerId: string; model: string; passages: CardPassage[]; maxCards?: number }
+interface GenerateCardsInput { providerId: string; model: string; passages: CardPassage[]; maxCards?: number;
+  focus?: string }                   // what the cards should be about; off-topic passages are skipped
+// Scan part of a document (the Cards tab's bar). range (pages, 1-based, inclusive) wins over the
+// request; otherwise the request is read for a scope, and the model plans one when it names none.
+interface ScanCardsInput { providerId: string; model: string; docPath: string; request: string;
+  range?: { from: number; to: number }; maxCards?: number }   // maxCards: total for the whole scan
+interface ScanScope { label: string; units: number; kind: "pages" | "sections" }
+interface ScanProgress { docPath: string; state: "planning" | "generating" | "done" | "cancelled" | "error";
+  scope?: ScanScope; done: number; total: number;   // batches finished / planned
+  cards: number; failed: number; error?: string;
+  drafts?: CardDraft[] }             // the batch that just finished; only on progress events
 
 interface FlashcardsApi {
   decks: {
@@ -656,12 +667,30 @@ interface FlashcardsApi {
     review(id: string, grade: ReviewGrade): Promise<Flashcard>   // reschedules in main
   }
   generate(input: GenerateCardsInput): Promise<CardDraft[]>      // one non-streamed model call; drafts are not saved
+  scan(input: ScanCardsInput): Promise<ScanProgress>             // starts a background scan; returns at once (state "planning")
+  cancelScan(docPath: string): Promise<void>
   exportAnki(deckId: string): Promise<string | null>             // save dialog → Anki text import (TSV with #deck/#notetype headers)
 }
+// EventsApi: onScanProgress(cb: (e: ScanProgress) => void): () => void   (flashcards:scanProgress)
 ```
 
 `generate` asks the model for strict JSON (`{"cards": [{question, answer, passage}]}`), tolerates
 `<think>` blocks and code fences, drops duplicates, and caps at `maxCards` (default 20, max 50).
+
+`scan` (`src/main/study/scan.ts`, `scanRunner.ts`; one scan per document at a time, cancelled on
+library switch) splits the document into *units*: one per page, or, without pages, one per Markdown
+heading section (else ~6000-char slices). The scope is resolved in this order: the explicit `range`;
+the request read without a model (whole-document phrases, `pages 3-5` / `p. 7 to 9` / `from page 12`
+on paginated documents, outline titles and `chapter 2` / `section 2.1` numbering, a title spanning
+until the next heading of the same or a higher level); one planning call (temperature 0.1) given
+the outline, or the first words of up to 300 units, answering `{"ranges": [{from, to, label}], "focus"}`;
+and finally the whole document with the request as focus. Units are packed into batches of at most
+24000 chars (a unit over 6000 chars is split at paragraphs), each batch is one `generate`-style call
+with the focus, and its drafts are pushed on `onScanProgress` as it finishes so the review list
+fills up live. `maxCards` is spent across batches (per batch: the remainder, capped at 50; without
+a max, 20 for a single batch and 10 otherwise). A batch that fails is counted in `failed` and the
+scan goes on; three consecutive non-JSON failures stop it, and it ends in `error` only when no
+batch produced cards. With a focus, a `{"cards": []}` reply is an off-topic batch, not a failure.
 
 Cards point at concepts by id: `links.concepts.merge` moves them onto the surviving concept and
 `links.concepts.remove` drops the id, both in main. The renderer also adds the existing concepts a
@@ -783,6 +812,7 @@ interface LibraryApi {
   pickFolder(purpose: "create" | "open"): Promise<string | null>
   create(root: string, name?: string): Promise<void>     // switches; the window reloads
   open(root: string, expectId?: string): Promise<void>   // switches; expectId guards "Locate…"
+  shown(): Promise<void>                                 // renderer painted (tabs restored); lifts the frame main froze over the reload
   files(): Promise<LibraryFile[]>
   rescan(): Promise<LibraryFile[]>
   import(paths: string[], folder?: string): Promise<ImportResult[]>   // copies; data re-pointed

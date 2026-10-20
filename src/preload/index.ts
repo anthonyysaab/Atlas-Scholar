@@ -58,6 +58,7 @@ import type {
   ProviderModuleDescriptor,
   RagApi,
   RagQueryResult,
+  ScanProgress,
   Settings,
   SettingsApi,
   Thread,
@@ -213,7 +214,8 @@ const eventsApi: Api["events"] = {
     subscribe<FileChangedEvent>(IPC.file.changed, (event) => cb({ path: event.path, type: event.type })),
   onLinksChanged: (cb) => subscribe<LinksChangedEvent>(IPC.links.changed, cb),
   onExtractProgress: (cb) => subscribe<ExtractProgress>(IPC.links.extractProgress, cb),
-  onMapProgress: (cb) => subscribe<MapProgress>(IPC.rag.mapProgress, cb)
+  onMapProgress: (cb) => subscribe<MapProgress>(IPC.rag.mapProgress, cb),
+  onScanProgress: (cb) => subscribe<ScanProgress>(IPC.flashcards.scanProgress, cb)
 };
 
 const healthApi: Api["health"] = {
@@ -270,6 +272,7 @@ const libraryApi: LibraryApi = {
   pickFolder: (purpose) => invoke<string | null>(IPC.library.pickFolder, purpose),
   create: (root, name) => invoke<void>(IPC.library.create, root, name),
   open: (root, expectId) => invoke<void>(IPC.library.open, root, expectId),
+  shown: () => invoke<void>(IPC.library.shown),
   files: () => invoke<LibraryFile[]>(IPC.library.files),
   rescan: () => invoke<LibraryFile[]>(IPC.library.rescan),
   import: (paths, folder) => invoke<ImportResult[]>(IPC.library.import, paths, folder),
@@ -303,6 +306,8 @@ const flashcardsApi: FlashcardsApi = {
     review: (id, grade) => invoke<Flashcard>(IPC.flashcards.cardsReview, id, grade)
   },
   generate: (input) => invoke<CardDraft[]>(IPC.flashcards.generate, input),
+  scan: (input) => invoke<ScanProgress>(IPC.flashcards.scan, input),
+  cancelScan: (docPath) => invoke<void>(IPC.flashcards.cancelScan, docPath),
   exportAnki: (deckId) => invoke<string | null>(IPC.flashcards.exportAnki, deckId)
 };
 

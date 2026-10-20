@@ -4,8 +4,9 @@ import { asArray, asNumber, asRecord, asString } from "@main/providers/json";
 
 export const DEFAULT_MAX_CARDS = 20;
 const HARD_MAX_CARDS = 50;
-const MAX_PASSAGE_CHARS = 6000;
-const MAX_TOTAL_CHARS = 24000;
+export const MAX_PASSAGE_CHARS = 6000;
+export const MAX_TOTAL_CHARS = 24000;
+const MAX_FOCUS_CHARS = 2000;
 
 export function clampMaxCards(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return DEFAULT_MAX_CARDS;
@@ -18,12 +19,13 @@ const RULES = [
   "Each card tests exactly one fact, definition, relation, or step. Prefer questions that require recall or understanding over yes/no or trivia.",
   "The question must make sense on its own, without seeing the passage. The answer must be short (a phrase or one or two sentences) and fully supported by the passage; never add outside facts.",
   "Write in the language of the passages. Use Markdown sparingly. Write math as LaTeX with $...$ (inline) or $$...$$ (display).",
+  'When the user gives a focus, write only cards about it and skip passages that do not touch it; reply with {"cards": []} if none do.',
   String.raw`Inside the JSON strings, every LaTeX backslash must be doubled, as JSON requires: write "$\\frac{a}{b}$", not "$\frac{a}{b}$".`,
   'Reply with ONLY a JSON object, no prose and no code fence: {"cards": [{"question": "...", "answer": "...", "passage": 1}]}, where "passage" is the number of the passage the card comes from.'
 ];
 
 /** Prompt the model with numbered passages; long passages are trimmed to keep the request bounded. */
-export function buildGenerateMessages(passages: CardPassage[], maxCards: number): ChatMessage[] {
+export function buildGenerateMessages(passages: CardPassage[], maxCards: number, focus?: string): ChatMessage[] {
   let used = 0;
   const blocks: string[] = [];
   passages.forEach((passage, index) => {
@@ -34,9 +36,11 @@ export function buildGenerateMessages(passages: CardPassage[], maxCards: number)
     const header = where ? ` (${where.replace(/\s+/g, " ")})` : "";
     blocks.push(`Passage ${index + 1}${header}:\n"""\n${text}\n"""`);
   });
+  const trimmedFocus = focus?.trim().slice(0, MAX_FOCUS_CHARS);
+  const head = [`Maximum cards: ${maxCards}`, ...(trimmedFocus ? [`Focus: ${trimmedFocus}`] : [])].join("\n");
   return [
     { role: "system", content: RULES.join("\n") },
-    { role: "user", content: `Maximum cards: ${maxCards}\n\n${blocks.join("\n\n")}` }
+    { role: "user", content: `${head}\n\n${blocks.join("\n\n")}` }
   ];
 }
 

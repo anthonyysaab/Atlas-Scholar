@@ -32,7 +32,7 @@ import { createDraft, renameDocument } from "./drafts";
 import { ExtractQueue } from "./extractQueue";
 import { cleanupTempFiles, findConflictCopies, machineName, othersPresent, startPresence } from "./hardening";
 import { hashFileMemo } from "./hash";
-import { ImportAliases, importDocument, type ImportOutcome } from "./import";
+import { expandImportSources, ImportAliases, importDocument, type ImportOutcome } from "./import";
 import { newManifest, readManifest, refuseAsLibrary, writeManifest } from "./manifest";
 import { isUrl, relativeInside, type PathMove } from "./paths";
 import { LibraryRegistry } from "./registry";
@@ -261,8 +261,9 @@ export async function describeFile(path: string, findCopy = true): Promise<FileL
 export async function importIntoLibrary(paths: readonly string[], folder?: string): Promise<ImportOutcome[]> {
   const library = requireOpenLibrary();
   const outcomes: ImportOutcome[] = [];
-  for (const path of paths) {
-    const outcome = await importDocument({ ctx: library.ctx, catalog: library.catalog, targets: relocatables() }, resolve(path), folder);
+  const sources = await expandImportSources(paths.map((path) => resolve(path)), folder);
+  for (const source of sources) {
+    const outcome = await importDocument({ ctx: library.ctx, catalog: library.catalog, targets: relocatables() }, source.src, source.folder);
     if (outcome.move) aliases.add(outcome.move);
     outcomes.push(outcome);
   }
