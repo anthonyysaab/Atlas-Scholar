@@ -78,6 +78,56 @@ describe("NotesStore", () => {
     expect((await store.get(note.id)).body).toBe(body);
   });
 
+  it("files notes into crates without reordering them", async () => {
+    const dir = await tempDir();
+    let tick = 0;
+    const store = new NotesStore(dir, { now: () => new Date(Date.UTC(2026, 9, 20, 10, 0, tick++)) });
+    const crate = await store.createCrate("  Thesis   chapter 2 ");
+    expect(crate.name).toBe("Thesis chapter 2");
+    expect(await store.createCrate("thesis chapter 2")).toEqual(crate);
+
+    const filed = await store.create({ title: "Filed", crateId: crate.id });
+    const loose = await store.create({ title: "Loose" });
+    expect(await readFile(join(dir, `${filed.id}.md`), "utf8")).toContain(`crate: ${crate.id}`);
+
+    const moved = await store.update(loose.id, { crateId: crate.id });
+    expect(moved.updatedAt).toBe(loose.updatedAt);
+    expect((await store.list()).map((note) => [note.title, note.crateId])).toEqual([
+      ["Loose", crate.id],
+      ["Filed", crate.id]
+    ]);
+
+    const unfiled = await store.update(loose.id, { crateId: null });
+    expect(unfiled.crateId).toBeUndefined();
+    expect((await store.get(loose.id)).crateId).toBeUndefined();
+  });
+
+  it("renames, sorts and deletes crates, keeping their notes", async () => {
+    const dir = await tempDir();
+    const store = new NotesStore(dir);
+    const beta = await store.createCrate("Beta");
+    const alpha = await store.createCrate("alpha");
+    expect((await store.listCrates()).map((crate) => crate.name)).toEqual(["alpha", "Beta"]);
+    await expect(store.renameCrate(beta.id, "ALPHA")).rejects.toThrow(/already exists/);
+    await expect(store.createCrate("   ")).rejects.toThrow(/needs a name/);
+    expect((await store.renameCrate(beta.id, "Gamma")).name).toBe("Gamma");
+
+    const note = await store.create({ title: "Kept", crateId: alpha.id });
+    await store.removeCrate(alpha.id);
+    expect((await store.listCrates()).map((crate) => crate.id)).toEqual([beta.id]);
+    expect((await store.get(note.id)).crateId).toBeUndefined();
+    await expect(store.create({ crateId: alpha.id })).rejects.toThrow(/no longer exists/);
+  });
+
+  it("treats a note whose crate is gone from crates.json as unfiled", async () => {
+    const dir = await tempDir();
+    const store = new NotesStore(dir);
+    const crate = await store.createCrate("Lost");
+    await store.create({ title: "Orphan", crateId: crate.id });
+    await rm(join(dir, "crates.json"));
+    expect((await store.list())[0]?.crateId).toBeUndefined();
+  });
+
   it("rejects ids that could escape the notes folder", async () => {
     const store = new NotesStore(await tempDir());
     await expect(store.get("../settings")).rejects.toThrow(/Invalid note id/);

@@ -8,8 +8,9 @@ import { Markdown } from "@renderer/components/Markdown";
 import { GatherToggle } from "@renderer/gather/GatherToggle";
 import { noteItem } from "@renderer/gather/items";
 import { annotationLink } from "@renderer/notes/copyToNotes";
+import { CrateBar, CrateSelect } from "@renderer/notes/CrateBar";
 import { selectActiveDoc, useAppStore } from "@renderer/state/appStore";
-import { useNotesStore } from "@renderer/state/notesStore";
+import { ALL_NOTES, inCrate, useNotesStore } from "@renderer/state/notesStore";
 
 type Mode = "write" | "preview" | "split";
 
@@ -30,17 +31,21 @@ function wordCount(text: string): number {
 
 function NotePicker({ onClose }: { onClose: () => void }) {
   const summaries = useNotesStore((state) => state.summaries);
+  const crateFilter = useNotesStore((state) => state.crateFilter);
+  const crates = useNotesStore((state) => state.crates);
   const activeId = useNotesStore((state) => state.active?.id ?? null);
   const [query, setQuery] = useState("");
+  const crateNames = useMemo(() => new Map(crates.map((crate) => [crate.id, crate.name])), [crates]);
   const shown = useMemo(() => {
     const trimmed = query.trim();
-    if (!trimmed) return summaries;
-    return summaries
+    const inView = summaries.filter((note) => inCrate(note, crateFilter));
+    if (!trimmed) return inView;
+    return inView
       .map((note) => ({ note, score: fuzzyScoreAny(trimmed, [note.title, note.excerpt]) }))
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((entry) => entry.note);
-  }, [summaries, query]);
+  }, [summaries, crateFilter, query]);
 
   return (
     <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded border border-border bg-panel shadow-lg">
@@ -77,6 +82,9 @@ function NotePicker({ onClose }: { onClose: () => void }) {
             >
               <span className="flex items-center gap-2 text-xs text-text">
                 <span className="min-w-0 flex-1 truncate">{note.title || "Untitled note"}</span>
+                {crateFilter === ALL_NOTES && note.crateId && crateNames.has(note.crateId) ? (
+                  <span className="max-w-[6rem] shrink-0 truncate rounded bg-bg-subtle px-1 text-[10px] text-text-weak">{crateNames.get(note.crateId)}</span>
+                ) : null}
                 <span className="shrink-0 text-[10px] text-text-weak">{dateLabel(note.updatedAt)}</span>
               </span>
               {note.excerpt ? <span className="truncate text-[11px] text-text-weak">{note.excerpt}</span> : null}
@@ -152,7 +160,10 @@ export function NotesTab() {
   const loaded = useNotesStore((state) => state.loaded);
   const active = useNotesStore((state) => state.active);
   const dirty = useNotesStore((state) => state.dirty);
-  const count = useNotesStore((state) => state.summaries.length);
+  const total = useNotesStore((state) => state.summaries.length);
+  const count = useNotesStore((state) => state.summaries.filter((note) => inCrate(note, state.crateFilter)).length);
+  const crateName = useNotesStore((state) => state.crates.find((crate) => crate.id === state.crateFilter)?.name);
+  const hasCrates = useNotesStore((state) => state.crates.length > 0);
   const [mode, setMode] = useState<Mode>("write");
   const [picking, setPicking] = useState(false);
   const [linking, setLinking] = useState(false);
@@ -194,19 +205,27 @@ export function NotesTab() {
   if (!loaded) return <div className="p-3 text-xs text-text-weak">Loading notes…</div>;
 
   if (!active) {
+    const title = count > 0 ? "No note open" : crateName ? `No notes in “${crateName}”` : total > 0 ? "No notes here" : "No notes yet";
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-4">
-        <EmptyState
-          title={count > 0 ? "No note open" : "No notes yet"}
-          hint="Notes are Markdown files kept in your library. Link them to highlights with “Copy to notes” in the Annotations tab, or the link button here."
-        />
-        <button
-          type="button"
-          onClick={() => void useNotesStore.getState().create("")}
-          className="rounded border border-border px-2 py-1 text-xs text-text hover:bg-panel"
-        >
-          New note
-        </button>
+      <div className="flex h-full flex-col">
+        {total > 0 || hasCrates ? <CrateBar /> : null}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
+          <EmptyState
+            title={title}
+            hint={
+              crateName
+                ? "New notes go into this crate. File other notes here with the crate menu next to a note's title."
+                : "Notes are Markdown files kept in your library. Link them to highlights with “Copy to notes” in the Annotations tab, or the link button here."
+            }
+          />
+          <button
+            type="button"
+            onClick={() => void useNotesStore.getState().create("")}
+            className="rounded border border-border px-2 py-1 text-xs text-text hover:bg-panel"
+          >
+            New note
+          </button>
+        </div>
       </div>
     );
   }
@@ -242,6 +261,7 @@ export function NotesTab() {
 
   return (
     <div className="flex h-full flex-col">
+      <CrateBar />
       <div className="relative flex items-center gap-1 border-b border-border px-2 py-1.5">
         <button
           type="button"
@@ -282,6 +302,7 @@ export function NotesTab() {
           placeholder="Untitled note"
           className="min-w-0 flex-1 bg-transparent py-2 pr-3 text-sm font-semibold text-text outline-none placeholder:text-text-weak"
         />
+        <CrateSelect note={active} />
       </div>
 
       <div className="relative flex items-center gap-1 px-2 py-1 text-[11px]">
