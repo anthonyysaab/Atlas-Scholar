@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Note, NoteCrate, NoteSummary } from "@shared/types";
+import { onExitFlush } from "@renderer/lib/exitFlush";
 import { toast } from "./toastStore";
 
 const SAVE_DELAY_MS = 600;
@@ -256,3 +257,5 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   }
 }));
+
+onExitFlush(() => useNotesStore.getState().flush());

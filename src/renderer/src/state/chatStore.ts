@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type { ChatMessage, Citation, SelectionQuote, Thread } from "@shared/types";
+import { samePath } from "@shared/docLabel";
 import { buildPromptContext } from "@renderer/chat/context";
 import { buildRelatedQuery, pickRelated } from "@renderer/chat/related";
 import { stripThink } from "@renderer/chat/think";
 import { wikiInputsForMessage, wikiInputsForTurn } from "@renderer/chat/wikiLinks";
+import { onExitFlush } from "@renderer/lib/exitFlush";
 import { useAppStore } from "@renderer/state/appStore";
 import { useLinksStore } from "@renderer/state/linksStore";
 import { useSettingsStore } from "@renderer/state/settingsStore";
@@ -76,9 +78,51 @@ export function toChatMessage(message: ThreadMessage): ChatMessage {
   };
 }
 
-function persistThread(threadId: string): void {
+function persistThread(threadId: string): Promise<void> {
   const thread = useChatStore.getState().threads[threadId];
-  if (thread?.docPath) void window.api.threads.save(thread).catch(() => undefined);
+  if (!thread?.docPath) return Promise.resolve();
+  return window.api.threads.save(thread).catch(() => undefined);
+}
+
+// A reply is written as it streams, so closing the app (or a crash) mid-answer keeps what arrived.
+const STREAM_SAVE_MS = 1500;
+const streamSaves = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleStreamSave(threadId: string): void {
+  if (streamSaves.has(threadId)) return;
+  streamSaves.set(
+    threadId,
+    setTimeout(() => {
+      streamSaves.delete(threadId);
+      void persistThread(threadId);
+    }, STREAM_SAVE_MS)
+  );
+}
+
+function cancelStreamSave(threadId: string): void {
+  const timer = streamSaves.get(threadId);
+  if (timer) clearTimeout(timer);
+  streamSaves.delete(threadId);
+}
+
+/** An empty reply on disk is a placeholder whose stream never produced text (the app closed first). */
+export function isEmptyReply(message: ThreadMessage): boolean {
+  return message.role === "assistant" && !message.content.trim();
+}
+
+/** The thread each document showed last session, by document path; used once per document. */
+let preferredActive: Record<string, string> = {};
+
+export function preferActiveThreads(byPath: Record<string, string>): void {
+  preferredActive = { ...byPath };
+}
+
+function takePreferred(docPath: string, saved: readonly Thread[]): string | undefined {
+  const key = Object.keys(preferredActive).find((path) => samePath(path, docPath));
+  if (key === undefined) return undefined;
+  const id = preferredActive[key];
+  delete preferredActive[key];
+  return saved.some((thread) => thread.id === id) ? id : undefined;
 }
 
 function docPathOf(docId: string): string {
@@ -140,10 +184,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (saved.length === 0) return;
       set((state) => {
         // A thread still in memory (its tab was closed and reopened) is fresher than its file.
-        const loaded = saved.map((thread) => ({ ...(state.threads[thread.id] ?? thread), docId, docPath }));
+        const loaded = saved.map((thread) => {
+          const live = state.threads[thread.id];
+          if (live) return { ...live, docId, docPath };
+          return { ...thread, docId, docPath, messages: thread.messages.filter((message) => !isEmptyReply(message)) };
+        });
         const known = state.threadIdsByDoc[docId] ?? [];
         const ids = [...loaded.map((thread) => thread.id).filter((id) => !known.includes(id)), ...known];
-        const active = state.activeThreadByDoc[docId] ?? mostRecent(saved)?.id;
+        const active = state.activeThreadByDoc[docId] ?? takePreferred(docPath, saved) ?? mostRecent(saved)?.id;
         return {
           threads: { ...state.threads, ...Object.fromEntries(loaded.map((thread) => [thread.id, thread])) },
           threadIdsByDoc: { ...state.threadIdsByDoc, [docId]: ids },
@@ -197,7 +245,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       threads: { ...current.threads, [threadId]: { ...thread, messages: [] } },
       lastError: null
     }));
-    persistThread(threadId);
+    void persistThread(threadId);
   },
 
   renameThread: (_docId, threadId, title) => {
@@ -207,7 +255,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       threads: { ...state.threads, [threadId]: { ...thread, title: trimmed } }
     }));
-    persistThread(threadId);
+    void persistThread(threadId);
   },
 
   toggleStudy: (docId) => {
@@ -218,7 +266,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (thread.study) delete next.study;
     else next.study = true;
     set((state) => ({ threads: { ...state.threads, [threadId]: next } }));
-    persistThread(threadId);
+    void persistThread(threadId);
   },
 
   deleteThread: (docId, threadId) => {
@@ -301,7 +349,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         lastError: null
       };
     });
-    persistThread(threadId);
+    void persistThread(threadId);
 
     const scope = settings?.chat?.scope ?? "document";
     const context = await buildPromptContext(docPath, trimmed, scope, selection, thread.study === true);
@@ -321,7 +369,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     const history = (get().threads[threadId]?.messages ?? [])
-      .filter((message) => message.id !== assistantId)
+      .filter((message) => message.id !== assistantId && !isEmptyReply(message))
       .map(toChatMessage);
     const messages: ChatMessage[] = [
       ...(context.promptContext ? [{ role: "system" as const, content: context.promptContext }] : []),
@@ -353,6 +401,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       return { threads: { ...state.threads, [meta.threadId]: { ...thread, messages } } };
     });
+    scheduleStreamSave(meta.threadId);
   },
 
   handleDone: ({ streamId }) => {
@@ -378,7 +427,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (streamByDoc[meta.docId] === streamId) delete streamByDoc[meta.docId];
       return { threads, streams, streamByDoc };
     });
-    persistThread(meta.threadId);
+    cancelStreamSave(meta.threadId);
+    void persistThread(meta.threadId);
     void afterTurn(meta);
   },
 
@@ -401,7 +451,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (meta && streamByDoc[meta.docId] === streamId) delete streamByDoc[meta.docId];
       return { lastError: error, streams, streamByDoc };
     });
-    if (meta) persistThread(meta.threadId);
+    if (!meta) return;
+    cancelStreamSave(meta.threadId);
+    void persistThread(meta.threadId);
   }
 }));
 
@@ -444,7 +496,7 @@ async function afterTurn(meta: StreamMeta): Promise<void> {
         }
       };
     });
-    persistThread(meta.threadId);
+    void persistThread(meta.threadId);
   } catch {
     // No other indexed documents, or the embedder is down: simply no suggestions.
   }
@@ -470,3 +522,10 @@ function subscribeToEvents(): void {
 }
 
 subscribeToEvents();
+
+onExitFlush(() => {
+  const { streams } = useChatStore.getState();
+  const threadIds = new Set([...Object.values(streams).map((meta) => meta.threadId), ...streamSaves.keys()]);
+  for (const threadId of threadIds) cancelStreamSave(threadId);
+  return Promise.all([...threadIds].map(persistThread));
+});

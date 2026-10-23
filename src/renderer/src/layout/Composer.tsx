@@ -10,6 +10,26 @@ import { selectActiveThread, selectIsStreaming, useChatStore } from "@renderer/s
 import { useSettingsStore } from "@renderer/state/settingsStore";
 import { addSelectionToFlashcards } from "@renderer/study/flashcardActions";
 
+const DRAFT_KEY = "ra.composerDraft";
+
+// Browser storage can be unavailable (blocked site data); the composer then simply starts empty.
+function readDraft(): string {
+  try {
+    return localStorage.getItem(DRAFT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(text: string): void {
+  try {
+    if (text) localStorage.setItem(DRAFT_KEY, text);
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Losing an unsent draft on restart is acceptable; failing to type is not.
+  }
+}
+
 const SCOPE_LABELS: Record<ChatScope, string> = { document: "Doc only", extended: "Doc + outside", library: "Library" };
 
 const SCOPE_TITLES: Record<ChatScope, string> = {
@@ -32,7 +52,7 @@ export function Composer() {
   const streaming = useChatStore((state) => (doc ? selectIsStreaming(state, doc.id) : false));
   const thinkingLevel = useThinkingLevel();
   const thinkingSupport = useThinkingSupport();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(readDraft);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const disabled = !doc;
@@ -55,6 +75,8 @@ export function Composer() {
     setSelection(null);
     void send(doc.id, doc.ref.path, value, selection);
   };
+
+  useEffect(() => writeDraft(text), [text]);
 
   useEffect(() => {
     const focus = (): void => textareaRef.current?.focus();

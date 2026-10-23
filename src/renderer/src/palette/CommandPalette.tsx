@@ -103,7 +103,7 @@ export function CommandPalette() {
           if (info?.available) {
             if (
               window.confirm(
-                `Update available: ${info.latest} (you have ${info.current}). Download and install now?`
+                `Update available: ${info.latest} (you have ${info.current}). Download and install now? Atlas Scholar will save your session and close.`
               )
             ) {
               await useUpdateStore.getState().install();

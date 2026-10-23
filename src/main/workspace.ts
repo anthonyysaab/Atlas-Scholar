@@ -46,6 +46,16 @@ function parsePosition(value: unknown): SessionPosition {
   return position;
 }
 
+/** Document path → thread id; entries that are not both non-empty strings are dropped. */
+export function parseActiveThreads(value: unknown): Record<string, string> | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const entries = Object.entries(record).filter(
+    (entry): entry is [string, string] => entry[0].length > 0 && typeof entry[1] === "string" && entry[1].length > 0
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function parseSession(value: unknown): WorkspaceSession | null {
   const record = asRecord(value);
   if (!record) return null;
@@ -56,12 +66,14 @@ function parseSession(value: unknown): WorkspaceSession | null {
   if (positionsRaw) {
     for (const [path, entry] of Object.entries(positionsRaw)) positions[path] = parsePosition(entry);
   }
+  const activeThreads = parseActiveThreads(record["activeThreads"]);
   return {
     docs,
     activeDocPath: typeof activeRaw === "string" ? activeRaw : null,
     positions,
     ...(record["graphOpen"] === true ? { graphOpen: true } : {}),
-    ...(record["graphActive"] === true ? { graphActive: true } : {})
+    ...(record["graphActive"] === true ? { graphActive: true } : {}),
+    ...(activeThreads ? { activeThreads } : {})
   };
 }
 
@@ -89,7 +101,10 @@ export function mapWorkspacePaths(data: WorkspaceFile, fn: (path: string) => str
         ...data.session,
         docs: data.session.docs.map(fn),
         activeDocPath: data.session.activeDocPath === null ? null : fn(data.session.activeDocPath),
-        positions: Object.fromEntries(Object.entries(data.session.positions).map(([path, position]) => [fn(path), position]))
+        positions: Object.fromEntries(Object.entries(data.session.positions).map(([path, position]) => [fn(path), position])),
+        ...(data.session.activeThreads
+          ? { activeThreads: Object.fromEntries(Object.entries(data.session.activeThreads).map(([path, id]) => [fn(path), id])) }
+          : {})
       }
     : null;
   return {

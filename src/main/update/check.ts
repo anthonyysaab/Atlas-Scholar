@@ -104,4 +104,7 @@ export async function downloadAndInstallUpdate(): Promise<void> {
   await writeFile(target, buffer);
   const error = await shell.openPath(target);
   if (error) throw new Error(`Could not launch the installer: ${error}`);
+  // Quit on our own terms, after the reply has gone out: the window's close guard writes the
+  // session and chats first, where the installer would otherwise kill the app mid-write.
+  setTimeout(() => app.quit(), 300);
 }

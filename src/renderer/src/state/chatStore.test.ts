@@ -11,7 +11,7 @@ import type {
 } from "@shared/types";
 import { splitThink } from "@renderer/chat/think";
 import { useAppStore } from "./appStore";
-import { toChatMessage, useChatStore } from "./chatStore";
+import { isEmptyReply, preferActiveThreads, toChatMessage, useChatStore } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 
 const calls = vi.hoisted(() => ({
@@ -129,6 +129,76 @@ describe("chatStore thread persistence", () => {
     expect(state.activeThreadByDoc["tab-2"]).toBe("new");
     expect(state.threads["old"]?.docId).toBe("tab-2");
     expect(state.ensureActiveThread("tab-2")).toBe("new");
+  });
+
+  it("reopens the thread shown last session rather than the most recently updated one", async () => {
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["threads"] = { save: async () => undefined, load: async () => saved };
+    useChatStore.setState({ hydratedDocs: {} });
+    preferActiveThreads({ "c:/docs/cours.pdf": "old" });
+
+    await useChatStore.getState().hydrate("tab-3", path);
+    expect(useChatStore.getState().activeThreadByDoc["tab-3"]).toBe("old");
+
+    // Used once: a later tab of the same document falls back to the most recent thread.
+    await useChatStore.getState().hydrate("tab-4", path);
+    expect(useChatStore.getState().activeThreadByDoc["tab-4"]).toBe("new");
+  });
+
+  it("ignores a remembered thread that no longer exists", async () => {
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["threads"] = { save: async () => undefined, load: async () => saved };
+    useChatStore.setState({ hydratedDocs: {} });
+    preferActiveThreads({ [path]: "deleted" });
+
+    await useChatStore.getState().hydrate("tab-5", path);
+    expect(useChatStore.getState().activeThreadByDoc["tab-5"]).toBe("new");
+  });
+
+  it("drops the empty reply a closed app left behind, and leaves it out of the next prompt", async () => {
+    const interrupted: Thread = {
+      id: "cut",
+      docId: "dead-tab",
+      docPath: path,
+      title: "Cut",
+      updatedAt: "2026-01-09T00:00:00.000Z",
+      messages: [
+        { id: "q", role: "user", content: "first question", createdAt: "" },
+        { id: "a", role: "assistant", content: "", createdAt: "" }
+      ]
+    };
+    const api = (window as unknown as { api: Record<string, unknown> }).api;
+    api["threads"] = { save: async () => undefined, load: async () => [interrupted] };
+    useChatStore.setState({ hydratedDocs: {} });
+
+    await useChatStore.getState().hydrate("tab-6", path);
+    expect(useChatStore.getState().threads["cut"]?.messages.map((message) => message.id)).toEqual(["q"]);
+    expect(isEmptyReply({ id: "x", role: "assistant", content: "  ", createdAt: "" })).toBe(true);
+    expect(isEmptyReply({ id: "x", role: "user", content: "", createdAt: "" })).toBe(false);
+  });
+
+  it("writes a streaming reply as it arrives, not only when it ends", async () => {
+    vi.useFakeTimers();
+    try {
+      const writes: string[] = [];
+      const api = (window as unknown as { api: Record<string, unknown> }).api;
+      api["threads"] = {
+        save: async (thread: Thread) => {
+          writes.push(thread.messages.at(-1)?.content ?? "");
+        }
+      };
+      await useChatStore.getState().send("stream-doc", "C:/stream.pdf", "question");
+      const streamId = useChatStore.getState().streamByDoc["stream-doc"] ?? "";
+      writes.length = 0;
+
+      useChatStore.getState().handleToken({ streamId, delta: "Partial " });
+      useChatStore.getState().handleToken({ streamId, delta: "answer" });
+      expect(writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(writes).toEqual(["Partial answer"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("saves new threads under the tab's document path and deletes any thread by path and id", async () => {

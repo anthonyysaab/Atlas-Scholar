@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 // Windows briefly locks a file that antivirus, a sync client or a reader has open; renaming
@@ -31,11 +31,29 @@ export async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 }
 
-/** Temp-write then rename, so a crash mid-write can never truncate the existing file. */
+async function writeDurably(path: string, data: string | Uint8Array): Promise<void> {
+  const handle = await open(path, "w");
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Temp-write then rename, so a crash mid-write can never truncate the existing file. The temp file
+ * is synced first: otherwise a power loss or forced restart can land the rename before the data.
+ */
 export async function writeFileAtomic(target: string, data: string | Uint8Array): Promise<void> {
   await mkdir(dirname(target), { recursive: true });
   const temp = tempPathFor(target);
-  await writeFile(temp, data);
+  try {
+    await writeDurably(temp, data);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
   try {
     await renameWithRetry(temp, target);
   } catch (error) {

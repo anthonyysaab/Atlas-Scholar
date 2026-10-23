@@ -182,16 +182,29 @@ export async function getSettings(): Promise<Settings> {
   return { ...current, keysConfigured: await listConfiguredSecrets() };
 }
 
-export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
-  const current = await loadCache();
-  cache = normalizeSettings({
-    ...current,
-    ...patch,
-    rag: { ...current.rag, ...(patch.rag ?? {}) },
-    chat: { ...current.chat, ...(patch.chat ?? {}) },
-    graph: { ...current.graph, ...(patch.graph ?? {}) },
-    ui: { ...current.ui, ...(patch.ui ?? {}) }
+// Updates run one at a time: two overlapping writes could otherwise rename out of order and
+// leave the older snapshot on disk.
+let writes: Promise<unknown> = Promise.resolve();
+
+export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  const run = writes.then(async () => {
+    const current = await loadCache();
+    cache = normalizeSettings({
+      ...current,
+      ...patch,
+      rag: { ...current.rag, ...(patch.rag ?? {}) },
+      chat: { ...current.chat, ...(patch.chat ?? {}) },
+      graph: { ...current.graph, ...(patch.graph ?? {}) },
+      ui: { ...current.ui, ...(patch.ui ?? {}) }
+    });
+    await persist();
+    return getSettings();
   });
-  await persist();
-  return getSettings();
+  writes = run.catch(() => undefined);
+  return run;
+}
+
+/** Wait for every queued settings write. */
+export async function flushSettings(): Promise<void> {
+  await writes;
 }

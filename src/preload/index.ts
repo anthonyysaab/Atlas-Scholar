@@ -215,7 +215,8 @@ const eventsApi: Api["events"] = {
   onLinksChanged: (cb) => subscribe<LinksChangedEvent>(IPC.links.changed, cb),
   onExtractProgress: (cb) => subscribe<ExtractProgress>(IPC.links.extractProgress, cb),
   onMapProgress: (cb) => subscribe<MapProgress>(IPC.rag.mapProgress, cb),
-  onScanProgress: (cb) => subscribe<ScanProgress>(IPC.flashcards.scanProgress, cb)
+  onScanProgress: (cb) => subscribe<ScanProgress>(IPC.flashcards.scanProgress, cb),
+  onFlushRequest: (cb) => subscribe<{ requestId: string }>(IPC.workspace.flushRequest, cb)
 };
 
 const healthApi: Api["health"] = {
@@ -262,7 +263,8 @@ const workspaceApi: Api["workspace"] = {
     list: () => invoke<string[]>(IPC.workspace.recentList),
     remove: (path) => invoke<void>(IPC.workspace.recentRemove, path),
     clear: () => invoke<void>(IPC.workspace.recentClear)
-  }
+  },
+  flushed: (requestId) => invoke<void>(IPC.workspace.flushed, requestId)
 };
 
 const libraryApi: LibraryApi = {

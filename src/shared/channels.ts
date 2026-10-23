@@ -157,7 +157,9 @@ export const IPC = {
     sessionSet: "workspace:session:set",
     recentList: "workspace:recent:list",
     recentRemove: "workspace:recent:remove",
-    recentClear: "workspace:recent:clear"
+    recentClear: "workspace:recent:clear",
+    flushRequest: "workspace:flush:request",
+    flushed: "workspace:flushed"
   },
   library: {
     state: "library:state",

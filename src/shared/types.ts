@@ -528,6 +528,8 @@ export interface EventsApi {
   onMapProgress(cb: (e: MapProgress) => void): () => void;
   onScanProgress(cb: (e: ScanProgress) => void): () => void;
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void;
+  /** The app is about to close (quit, update, Windows shutdown): write what is pending, then call `workspace.flushed`. */
+  onFlushRequest(cb: (e: { requestId: string }) => void): () => void;
 }
 
 export type HealthState = "ok" | "degraded" | "down" | "unconfigured";
@@ -666,6 +668,8 @@ export interface WorkspaceSession {
   /** The concept graph tab was open, and in front when `graphActive`. */
   graphOpen?: boolean;
   graphActive?: boolean;
+  /** The chat thread last shown for each open document (document path → thread id). */
+  activeThreads?: Record<string, string>;
 }
 
 /** Per-document bookmarks and the last-session snapshot. Added by the workspace feature. */
@@ -685,6 +689,8 @@ export interface WorkspaceApi {
     remove(path: string): Promise<void>;
     clear(): Promise<void>;
   };
+  /** Answers `events.onFlushRequest`: everything pending in the renderer has been written. */
+  flushed(requestId: string): Promise<void>;
 }
 
 export interface Deck {

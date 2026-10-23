@@ -1,6 +1,8 @@
 import { IPC } from "@shared/channels";
 import type { Bookmark, SessionPosition, WorkspaceSession } from "@shared/types";
+import { resolveFlushRequest } from "@main/lifecycle";
 import { getWorkspaceStore } from "@main/library/scopedStores";
+import { parseActiveThreads } from "@main/workspace";
 import { asNumber, asRecord, asString } from "@main/providers/json";
 import { handle } from "./registry";
 
@@ -45,12 +47,14 @@ function parseSessionInput(value: unknown): WorkspaceSession {
     ? record["docs"].filter((entry): entry is string => typeof entry === "string")
     : [];
   const activeDocPath = asString(record["activeDocPath"]) ?? null;
+  const activeThreads = parseActiveThreads(record["activeThreads"]);
   return {
     docs,
     activeDocPath,
     positions: parsePositions(record["positions"]),
     ...(record["graphOpen"] === true ? { graphOpen: true } : {}),
-    ...(record["graphActive"] === true ? { graphActive: true } : {})
+    ...(record["graphActive"] === true ? { graphActive: true } : {}),
+    ...(activeThreads ? { activeThreads } : {})
   };
 }
 
@@ -65,4 +69,5 @@ export function registerWorkspaceIpc(): void {
   handle(IPC.workspace.recentList, () => getStore().listRecent());
   handle(IPC.workspace.recentRemove, (path: unknown) => getStore().removeRecent(String(path)));
   handle(IPC.workspace.recentClear, () => getStore().clearRecent());
+  handle(IPC.workspace.flushed, (requestId: unknown) => resolveFlushRequest(String(requestId)));
 }

@@ -526,6 +526,7 @@ interface EventsApi {
   onIndexProgress(cb: (e: { docPath: string; done: number; total: number; phase: string }) => void): () => void
   onFileChanged(cb: (e: { path: string; type: "change" | "unlink" }) => void): () => void
   onScanProgress(cb: (e: ScanProgress) => void): () => void   // §1.11, flashcards:scanProgress
+  onFlushRequest(cb: (e: { requestId: string }) => void): () => void   // workspace:flush:request; see below
 }
 ```
 
@@ -1029,8 +1030,20 @@ interface Thread {
 
 interface RelatedPassage { chunkId: string; docPath: string; docName: string; page?: number; snippet: string; score: number }
 
-// WorkspaceSession (<library>/.assistant/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06).
+// WorkspaceSession (<library>/.assistant/workspace.json) gains graphOpen?: boolean and graphActive?: boolean (06),
+// and activeThreads?: Record<docPath, threadId> (the thread each open document showed; keys stored like other paths).
+// WorkspaceApi gains flushed(requestId: string): Promise<void>   (workspace:flushed)
 ```
+
+**Exit flush.** Before the main window closes (close button, quit, the update installer launch, which
+now quits the app itself) main holds the close, sends `workspace:flush:request { requestId }`, and
+waits up to 3 s for the renderer to answer `workspace.flushed(requestId)` once its debounced writers
+(session, notes, draft autosave, a streaming reply) have saved; then it drains the library stores,
+settings and `userData/window-state.json` (`{ bounds, maximized }`) before letting the window close. A
+Windows `query-session-end` (shutdown/restart) starts the same flush without delaying the shutdown.
+A streaming reply is also saved every 1.5 s, so a forced kill loses at most that much; the empty
+assistant placeholder an interrupted stream leaves is dropped on load and never sent as history.
+`writeFileAtomic` fsyncs the temp file before its rename.
 
 Persisted one file per thread to `<library>/.assistant/threads/<docKey>/<threadId>.json`, where `docKey`
 is the first 32 hex chars of `sha256(pathKey(storedPath))` (`pathKey` lowercases Windows drive paths and

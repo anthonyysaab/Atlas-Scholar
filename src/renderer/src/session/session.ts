@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import type { WorkspaceSession } from "@shared/types";
 import { samePath } from "@shared/docLabel";
+import { onExitFlush } from "@renderer/lib/exitFlush";
 import { useAppStore } from "@renderer/state/appStore";
+import { preferActiveThreads, useChatStore } from "@renderer/state/chatStore";
 import { useViewStateStore } from "@renderer/state/viewStateStore";
 
 const SAVE_DEBOUNCE_MS = 600;
@@ -30,6 +32,8 @@ export async function restoreSession(): Promise<void> {
     return;
   }
   if (!session) return;
+  // Before any tab opens: its chat pane loads threads as soon as it mounts.
+  if (session.activeThreads) preferActiveThreads(session.activeThreads);
   if (session.docs.length === 0) {
     if (session.graphOpen) useAppStore.getState().openGraph(null);
     return;
@@ -77,17 +81,30 @@ export function cancelReload(): void {
   reloading = false;
 }
 
+/** Each open document's shown thread, if it has been saved (an empty "New chat" never is). */
+function activeThreadsOf(docs: readonly { id: string; ref: { path: string } }[]): Record<string, string> {
+  const { activeThreadByDoc, threads } = useChatStore.getState();
+  const entries = docs.flatMap((doc) => {
+    const threadId = activeThreadByDoc[doc.id];
+    const thread = threadId ? threads[threadId] : undefined;
+    return threadId && thread && thread.messages.length > 0 ? [[doc.ref.path, threadId] as const] : [];
+  });
+  return Object.fromEntries(entries);
+}
+
 async function saveSession(): Promise<void> {
   if (reloading) return;
   const { docs, activeDocId, graphTabOpen, centerView } = useAppStore.getState();
   const positions = useViewStateStore.getState().positions;
   const activeDoc = docs.find((doc) => doc.id === activeDocId);
+  const activeThreads = activeThreadsOf(docs);
   const session: WorkspaceSession = {
     docs: docs.map((doc) => doc.ref.path),
     activeDocPath: activeDoc?.ref.path ?? null,
     positions: Object.fromEntries(docs.map((doc) => [doc.ref.path, positions[doc.ref.path] ?? {}])),
     ...(graphTabOpen ? { graphOpen: true } : {}),
-    ...(graphTabOpen && centerView === "graph" ? { graphActive: true } : {})
+    ...(graphTabOpen && centerView === "graph" ? { graphActive: true } : {}),
+    ...(Object.keys(activeThreads).length > 0 ? { activeThreads } : {})
   };
   try {
     await window.api.workspace.session.set(session);
@@ -110,17 +127,26 @@ export function useSession(ready: boolean): void {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void saveSession(), SAVE_DEBOUNCE_MS);
     };
-    const flush = (): void => {
+    const flush = (): Promise<void> => {
       if (timer) clearTimeout(timer);
-      void saveSession();
+      timer = undefined;
+      return saveSession();
     };
     const unsubscribeApp = useAppStore.subscribe(schedule);
     const unsubscribeView = useViewStateStore.subscribe(schedule);
-    window.addEventListener("beforeunload", flush);
+    // Only a switch of thread: tokens stream through the same store and must not hold the save off.
+    const unsubscribeChat = useChatStore.subscribe((state, previous) => {
+      if (state.activeThreadByDoc !== previous.activeThreadByDoc) schedule();
+    });
+    const unregisterExit = onExitFlush(flush);
+    const onUnload = (): void => void flush();
+    window.addEventListener("beforeunload", onUnload);
     return () => {
       unsubscribeApp();
       unsubscribeView();
-      window.removeEventListener("beforeunload", flush);
+      unsubscribeChat();
+      unregisterExit();
+      window.removeEventListener("beforeunload", onUnload);
       if (timer) clearTimeout(timer);
     };
   }, [ready]);

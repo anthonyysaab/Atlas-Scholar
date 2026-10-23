@@ -15,3 +15,7 @@ export function flushDoc(docId: string): Promise<void> {
   const flush = flushers.get(docId);
   return flush ? flush() : Promise.resolve();
 }
+
+export async function flushAllDocs(): Promise<void> {
+  await Promise.allSettled([...flushers.values()].map((flush) => flush()));
+}

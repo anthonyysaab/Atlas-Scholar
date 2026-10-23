@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceSession } from "@shared/types";
-import { WorkspaceStore } from "./workspace";
+import { parseActiveThreads, WorkspaceStore } from "./workspace";
 
 const dirs: string[] = [];
 
@@ -59,6 +59,34 @@ describe("WorkspaceStore", () => {
     await store.setSession(session);
 
     expect(await store.getSession()).toEqual(session);
+  });
+
+  it("round-trips each document's active thread, stored library-relative", async () => {
+    const dir = await tempDir();
+    const codec = {
+      toStored: (path: string) => path.replace(/^\/lib\//, ""),
+      fromStored: (stored: string) => (stored.startsWith("/") ? stored : `/lib/${stored}`)
+    };
+    const file = join(dir, "workspace.json");
+    const store = new WorkspaceStore(file, { codec });
+    const session: WorkspaceSession = {
+      docs: ["/lib/a.pdf"],
+      activeDocPath: "/lib/a.pdf",
+      positions: { "/lib/a.pdf": {} },
+      activeThreads: { "/lib/a.pdf": "thread-1" }
+    };
+
+    await store.setSession(session);
+
+    expect(await store.getSession()).toEqual(session);
+    const raw = JSON.parse(await readFile(file, "utf8")) as { session: WorkspaceSession };
+    expect(raw.session.activeThreads).toEqual({ "a.pdf": "thread-1" });
+  });
+
+  it("drops malformed active-thread entries", () => {
+    expect(parseActiveThreads({ "/a.pdf": "t1", "/b.pdf": 3, "": "t2", "/c.pdf": "" })).toEqual({ "/a.pdf": "t1" });
+    expect(parseActiveThreads({ "/b.pdf": 3 })).toBeUndefined();
+    expect(parseActiveThreads("nope")).toBeUndefined();
   });
 
   it("keeps bookmarks and session independent", async () => {

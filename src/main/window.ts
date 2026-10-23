@@ -1,15 +1,45 @@
-import { app, BrowserWindow, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, screen, shell, type MenuItemConstructorOptions } from "electron";
 import { join } from "node:path";
 import { attachBrowser, disposeBrowser } from "@main/browser/service";
 import { bindEventTarget } from "@main/events";
+import { guardWindowClose } from "@main/lifecycle";
 import { titleBarOverlay, windowBackground } from "@main/titleBar";
+import { DEFAULT_SIZE, fitToDisplays, loadWindowState, MIN_SIZE, saveWindowState, type WindowState } from "@main/windowState";
+
+const BOUNDS_SAVE_DELAY_MS = 500;
+
+function restoredState(userData: string): WindowState | null {
+  const saved = loadWindowState(userData);
+  return saved ? fitToDisplays(saved, screen.getAllDisplays().map((display) => display.workArea)) : null;
+}
+
+/** Remember size, position and maximized state, saved as they change so a forced shutdown keeps them. */
+function trackWindowState(window: BrowserWindow, userData: string): () => Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const save = (): Promise<void> => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return Promise.resolve();
+    return saveWindowState(userData, { bounds: window.getNormalBounds(), maximized: window.isMaximized() }).catch(() => undefined);
+  };
+  const schedule = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => void save(), BOUNDS_SAVE_DELAY_MS);
+  };
+  window.on("resize", schedule);
+  window.on("move", schedule);
+  window.on("maximize", schedule);
+  window.on("unmaximize", schedule);
+  return save;
+}
 
 export function createMainWindow(): BrowserWindow {
+  const userData = app.getPath("userData");
+  const state = restoredState(userData);
   const window = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 768,
-    minHeight: 520,
+    ...(state ? state.bounds : DEFAULT_SIZE),
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     show: false,
     backgroundColor: windowBackground(),
     title: "Atlas Scholar",
@@ -33,7 +63,12 @@ export function createMainWindow(): BrowserWindow {
   attachBrowser(window);
   window.on("closed", () => disposeBrowser());
 
-  window.once("ready-to-show", () => window.show());
+  guardWindowClose(window, trackWindowState(window, userData));
+
+  window.once("ready-to-show", () => {
+    if (state?.maximized) window.maximize();
+    window.show();
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) void shell.openExternal(url);
